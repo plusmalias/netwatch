@@ -1,0 +1,53 @@
+[package]
+name = "netwatch"
+version = "0.2.0"
+description = "Home network monitor: device discovery, traffic and threat detection"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+pcap = { version = "2", optional = true }
+etherparse = "0.16"
+simple-dns = "0.9"
+netdev = "0.31"
+netstat2 = "0.11"
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
+socket2 = { version = "0.5", features = ["all"] }
+ureq = "2"
+dns-lookup = "2"
+btleplug = "0.13"
+futures = "0.3"
+tokio = { version = "1", features = ["time"] }
+uuid = "1"
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "0.26"
+x509-parser = "0.16"
+sha2 = "0.10"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSObject", "NSString", "NSArray", "NSSet", "NSData", "NSError", "NSDate", "NSEnumerator"] }
+objc2-core-location = { version = "0.3", default-features = false, features = ["std", "CLLocationManager", "CLLocation", "CLLocationManagerDelegate"] }
+objc2-core-wlan = { version = "0.3", default-features = false, features = ["std", "CWWiFiClient", "CWInterface", "CWNetwork", "CWChannel", "CoreWLANTypes"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_LibraryLoader", "Win32_System_SystemInformation"] }
+
+[features]
+default = ["capture"]
+capture = ["dep:pcap"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

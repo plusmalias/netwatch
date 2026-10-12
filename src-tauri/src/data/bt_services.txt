@@ -1,0 +1,76 @@
+1800GAP
+1801GATT
+1802Immediate Alert
+1803Link Loss
+1804Tx Power
+1805Current Time
+1806Reference Time Update
+1807Next DST Change
+1808Glucose
+1809Health Thermometer
+180ADevice Information
+180DHeart Rate
+180EPhone Alert Status
+180FBattery
+1810Blood Pressure
+1811Alert Notification
+1812Human Interface Device
+1813Scan Parameters
+1814Running Speed and Cadence
+1815Automation IO
+1816Cycling Speed and Cadence
+1818Cycling Power
+1819Location and Navigation
+181AEnvironmental Sensing
+181BBody Composition
+181CUser Data
+181DWeight Scale
+181EBond Management
+181FContinuous Glucose Monitoring
+1820Internet Protocol Support
+1821Indoor Positioning
+1822Pulse Oximeter
+1823HTTP Proxy
+1824Transport Discovery
+1825Object Transfer
+1826Fitness Machine
+1827Mesh Provisioning
+1828Mesh Proxy
+1829Reconnection Configuration
+183AInsulin Delivery
+183BBinary Sensor
+183CEmergency Configuration
+183DAuthorization Control
+183EPhysical Activity Monitor
+183FElapsed Time
+1840Generic Health Sensor
+1843Audio Input Control
+1844Volume Control
+1845Volume Offset Control
+1846Coordinated Set Identification
+1847Device Time
+1848Media Control
+1849Generic Media Control
+184AConstant Tone Extension
+184BTelephone Bearer
+184CGeneric Telephone Bearer
+184DMicrophone Control
+184EAudio Stream Control
+184FBroadcast Audio Scan
+1850Published Audio Capabilities
+1851Basic Audio Announcement
+1852Broadcast Audio Announcement
+1853Common Audio
+1854Hearing Access
+1855Telephony and Media Audio
+1856Public Broadcast Announcement
+1857Electronic Shelf Label
+1858Gaming Audio
+1859Mesh Proxy Solicitation
+185AIndustrial Measurement Device
+185BRanging
+185CHID ISO
+185DCookware
+185EVoice Assistant
+185FGeneric Voice Assistant
+1860Tire Pressure Monitoring System

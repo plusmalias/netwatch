@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NetWatch</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="mini.css">
+</head>
+<body class="mini">
+  <div class="mini-app">
+    <header class="mini-head">
+      <span class="dot off" id="m-dot"></span>
+      <div class="grow">
+        <div class="mini-status" id="m-status">NetWatch</div>
+        <div class="muted small" id="m-sub">Loading…</div>
+      </div>
+    </header>
+
+    <div class="mini-body">
+      <div class="banner warn-banner" id="m-access" hidden>
+        <div class="grow">
+          <b>Traffic monitoring is off.</b>
+          <div class="small" id="m-access-msg">macOS asks again after every restart.</div>
+        </div>
+        <button class="btn primary" id="m-grant" data-act="grant">Grant access</button>
+      </div>
+
+      <div class="mini-rows">
+        <div class="mini-row">
+          <span class="k">Devices</span>
+          <span class="v" id="m-devices">—</span>
+          <span class="s" id="m-devices-sub"></span>
+        </div>
+        <div class="mini-row">
+          <span class="k">Internet</span>
+          <span class="v" id="m-inet">—</span>
+          <span class="s" id="m-router"></span>
+          <span class="x mini-spark" id="m-spark"></span>
+        </div>
+        <div class="mini-row">
+          <span class="k" id="m-speed-k">Speed</span>
+          <span class="v" id="m-speed">—</span>
+        </div>
+        <div class="mini-row">
+          <span class="k">Data today</span>
+          <span class="v" id="m-data">—</span>
+          <span class="s" id="m-data-sub"></span>
+          <span class="x mini-meter" id="m-meter"></span>
+        </div>
+      </div>
+
+      <div class="mini-alerts">
+        <div class="sub-head" id="m-alerts-head">Alerts</div>
+        <div id="m-alerts"></div>
+      </div>
+    </div>
+
+    <footer class="mini-foot">
+      <button class="btn" id="m-scan" data-act="scan">Scan now</button>
+      <button class="btn primary" data-act="open">Open NetWatch</button>
+    </footer>
+  </div>
+  <script src="mini.js"></script>
+</body>
+</html>

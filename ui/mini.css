@@ -1,0 +1,35 @@
+/* The menu-bar popover (mini.html). Tokens, buttons and dots come from style.css. */
+body.mini { cursor: default; user-select: none; -webkit-user-select: none; }
+.mini-app { display: flex; flex-direction: column; height: 100vh; border: 1px solid var(--border-strong); background: var(--bg); }
+.grow { flex: 1; min-width: 0; }
+.mini-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.mini-status { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.mini-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.mini-body .banner { padding: 8px 12px; }
+.mini-rows { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); }
+.mini-row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 12px; border-top: 1px solid var(--border); }
+.mini-row:first-child { border-top: 0; }
+.mini-row .k { flex: none; width: 90px; color: var(--text-2); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.mini-row .v { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mini-row .s { min-width: 0; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-row .s:empty, .mini-row .x:empty { display: none; }
+.mini-row .x { flex: none; margin-left: auto; }
+.mini-spark svg { display: block; width: 70px; height: 22px; stroke: none; }
+.mini-meter { width: 48px; }
+.mini-meter .meter { margin: 0; }
+.mini-alerts .sub-head { margin: 2px 0 6px; }
+.mini-alert {
+  display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 8px; width: 100%;
+  margin-bottom: 5px; padding: 5px 10px; text-align: left; font-weight: 500;
+  background: var(--surface); border: 1px solid var(--border); border-left-width: 3px; border-radius: var(--radius-sm);
+}
+.mini-alert:hover { background: var(--hover); }
+.mini-alert.high { border-left-color: var(--critical); }
+.mini-alert.medium { border-left-color: var(--serious); }
+.mini-alert.low { border-left-color: var(--warning); }
+.mini-alert .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-alert .time { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.mini-more { display: block; margin: 2px 0 0; }
+.mini-none { color: var(--muted); padding: 4px 0; }
+.mini-foot { display: flex; gap: 8px; padding: 9px 12px; background: var(--surface); border-top: 1px solid var(--border); }
+.mini-foot .btn { flex: 1; }

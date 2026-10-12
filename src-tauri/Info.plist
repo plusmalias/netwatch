@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>NetWatch finds and monitors the devices on your home network.</string>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>NetWatch lists nearby Bluetooth devices and warns you about unknown item trackers. It only listens and never connects to other devices.</string>
+  <key>NSLocationUsageDescription</key>
+  <string>NetWatch uses your location only to show nearby Wi-Fi network names and to warn you if an unknown tracker travels with you. It never leaves this Mac.</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>NetWatch uses your location only to show nearby Wi-Fi network names and to warn you if an unknown tracker travels with you. It never leaves this Mac.</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_services._dns-sd._udp</string>
+    <string>_device-info._tcp</string>
+    <string>_airplay._tcp</string>
+    <string>_raop._tcp</string>
+    <string>_googlecast._tcp</string>
+    <string>_spotify-connect._tcp</string>
+    <string>_hap._tcp</string>
+    <string>_matter._tcp</string>
+    <string>_ipp._tcp</string>
+    <string>_printer._tcp</string>
+    <string>_smb._tcp</string>
+    <string>_ssh._tcp</string>
+    <string>_http._tcp</string>
+    <string>_companion-link._tcp</string>
+    <string>_sonos._tcp</string>
+    <string>_amzn-wplay._tcp</string>
+  </array>
+</dict>
+</plist>

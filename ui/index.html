@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NetWatch</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="appbar">
+      <div class="brand">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="5.5"/><path d="M12 12 18.7 5.3"/><circle class="blip" cx="16.2" cy="8.3" r="1.6"/></svg>
+        <span>NetWatch</span>
+      </div>
+      <nav class="topnav" aria-label="Sections">
+        <button class="nav-item active" data-group="overview">Overview</button>
+        <button class="nav-item" data-group="activity">Activity</button>
+        <button class="nav-item" data-group="devices">Devices<span class="count" id="nav-devices"></span></button>
+        <button class="nav-item" data-group="network">Network<span class="count" id="nav-network"></span></button>
+        <button class="nav-item" data-group="bluetooth">Bluetooth<span class="count alert" id="nav-bluetooth"></span></button>
+        <button class="nav-item" data-group="traffic">Traffic</button>
+        <button class="nav-item" data-group="security">Security<span class="count alert" id="nav-security"></span></button>
+      </nav>
+      <div class="appbar-right">
+        <button class="search-btn" data-action="palette" aria-label="Search (Command K)">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><span>Search</span><kbd>⌘K</kbd>
+        </button>
+        <span class="pill" id="capture-pill"></span>
+        <button class="btn primary" id="scan-btn">Scan network</button>
+        <button class="icon-btn" data-view="settings" aria-label="Settings" title="Settings">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <div class="page">
+      <header class="page-head">
+        <div>
+          <h1 id="view-title">Overview</h1>
+          <p class="page-sub" id="view-sub"></p>
+        </div>
+        <div class="page-head-right">
+          <span class="scan-phase" id="scan-phase"></span>
+          <span class="net-chip" id="net-summary"></span>
+        </div>
+      </header>
+      <nav class="subnav" id="subnav" hidden aria-label="Pages in this section"></nav>
+
+      <div class="banner" id="capture-banner" hidden></div>
+
+      <!-- Overview -->
+      <section class="view" id="view-overview">
+        <div class="tiles" id="tiles"></div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2 id="ov-chart-title">Throughput</h2>
+            <div class="legend" id="ov-legend"></div>
+          </div>
+          <div class="chart" id="ov-chart"></div>
+        </div>
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-head"><h2>Recent alerts</h2><button class="btn link" data-goto="alerts">View all</button></div>
+            <div id="ov-alerts"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>Newest devices</h2><button class="btn link" data-goto="devices">View all</button></div>
+            <div id="ov-devices"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Timeline -->
+      <section class="view" id="view-timeline" hidden>
+        <div class="toolbar">
+          <div class="seg" id="tl-filter" role="group" aria-label="Filter timeline">
+            <button data-f="all" data-label="All" class="on">All</button>
+            <button data-f="devices" data-label="Devices">Devices</button>
+            <button data-f="connection" data-label="Connection">Connection</button>
+            <button data-f="security" data-label="Security">Security</button>
+            <button data-f="summary" data-label="Summaries">Summaries</button>
+          </div>
+          <span class="spacer"></span>
+          <span class="muted small">Last 7 days</span>
+          <button class="btn" data-action="report">Weekly report</button>
+        </div>
+        <div class="panel tl-panel" id="tl-list"></div>
+      </section>
+
+      <!-- Security checkup -->
+      <section class="view" id="view-security" hidden>
+        <div class="panel sec-summary" id="sec-summary"></div>
+        <div id="sec-list"></div>
+        <p class="muted small">NetWatch checks what it can see from this computer. It can't check your router's admin password or firmware version; log in to the router to confirm those are up to date and not the defaults.</p>
+      </section>
+
+      <!-- Security audits -->
+      <section class="view" id="view-audit" hidden>
+        <div id="audit-body"></div>
+        <p class="muted small">The audits only look at your own network and this computer: devices on your Wi-Fi, apps and startup items here, your router's settings, and the sites you chose to watch. Turn each one on or off in Settings.</p>
+      </section>
+
+      <!-- Devices -->
+      <section class="view" id="view-devices" hidden>
+        <div class="toolbar">
+          <input type="search" id="dev-search" placeholder="Search name, IP, MAC, vendor…" aria-label="Search devices">
+          <div class="seg" id="dev-filter" role="group" aria-label="Filter devices">
+            <button data-f="all" class="on">All</button>
+            <button data-f="online">Online</button>
+            <button data-f="untrusted">Untrusted</button>
+            <button data-f="watched">Watched</button>
+          </div>
+          <span class="spacer"></span>
+          <button class="btn" data-action="export-devices">Export CSV</button>
+          <button class="btn" id="trust-all">Trust all</button>
+        </div>
+        <div class="panel flush">
+          <table class="table" id="dev-table">
+            <thead><tr><th></th><th>Device</th><th>IP address</th><th>MAC address</th><th>Details</th><th class="num">Latency</th><th>Last seen</th><th>Trusted</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="empty" id="dev-empty" hidden></div>
+        </div>
+      </section>
+
+      <!-- Network -->
+      <section class="view" id="view-network" hidden>
+        <div class="tiles" id="net-tiles"></div>
+        <div class="panel" id="mobile-panel" hidden>
+          <div class="panel-head"><h2>Mobile connection <span class="muted">· from your hotspot, checked every 30 seconds</span></h2></div>
+          <div class="usage-summary" id="mobile-now"></div>
+          <h3 class="sub-head" style="margin-top:4px">Recent changes</h3>
+          <div id="mobile-log"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Connection quality <span class="muted">· ping time, last hour</span></h2>
+            <div class="legend" id="health-legend"></div>
+          </div>
+          <div class="chart" id="health-chart"></div>
+          <div class="muted small chart-foot" id="health-foot"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Data usage <span class="muted">· whole network, from your router</span></h2>
+            <div class="row">
+              <div class="legend" id="usage-legend"></div>
+              <div class="seg" id="usage-view" role="group" aria-label="Usage period">
+                <button data-f="days" class="on">30 days</button>
+                <button data-f="hours">24 hours</button>
+              </div>
+            </div>
+          </div>
+          <div class="usage-summary" id="usage-summary"></div>
+          <div class="chart" id="usage-chart"></div>
+        </div>
+        <div class="panel" id="live-panel" hidden>
+          <div class="panel-head">
+            <h2>Right now <span class="muted">· whole network, last 10 minutes</span></h2>
+            <div class="legend" id="live-legend"></div>
+          </div>
+          <div class="chart short" id="live-chart"></div>
+        </div>
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-head"><h2>Router</h2></div>
+            <dl class="facts compact" id="router-facts"></dl>
+            <div id="router-note"></div>
+            <h3 class="sub-head">Port forwards</h3>
+            <div id="forwards"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>Internet</h2></div>
+            <dl class="facts compact" id="internet-facts"></dl>
+            <h3 class="sub-head">Speed test</h3>
+            <div id="speed-box"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Watched hosts</h2>
+            <div class="row"><input type="search" id="watch-input" placeholder="example.com or host:port" aria-label="Host to watch" class="small-input wide"><button class="btn" data-action="add-watch">Watch</button></div>
+          </div>
+          <div id="watch-list"></div>
+        </div>
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-head"><h2>Route to the internet</h2>
+              <div class="row"><input type="search" id="trace-target" value="1.1.1.1" aria-label="Host to trace" class="small-input"><button class="btn" id="trace-btn" data-action="trace">Trace route</button></div>
+            </div>
+            <div id="trace-result"><p class="muted small">Shows each hop between this computer and a host, and where the delay is added.</p></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>DNS check</h2><button class="btn" id="dns-check-btn" data-action="dns-check">Check DNS servers</button></div>
+            <div id="dns-check-result"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>VPN and DNS leak check</h2></div>
+          <div id="leak-box"></div>
+        </div>
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-head"><h2>Wi-Fi</h2></div>
+            <dl class="facts compact" id="wifi-facts"></dl>
+            <div id="wifi-note"></div>
+            <div id="nearby"></div>
+            <h3 class="sub-head">This computer</h3>
+            <dl class="facts compact" id="this-computer"></dl>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>Outages</h2></div>
+            <div id="outage-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Bluetooth and nearby -->
+      <section class="view" id="view-bluetooth" hidden>
+        <div class="banner flat" id="bt-status"></div>
+        <div class="banner warn-banner" id="tracker-banner" hidden></div>
+        <div class="banner bad-banner" id="spam-banner" hidden></div>
+        <div class="grid-2 wide-left">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Nearby map <span class="muted">· Wi-Fi and Bluetooth</span></h2>
+              <div class="legend" id="bt-map-legend"></div>
+            </div>
+            <div class="cat-chips map-chips" id="bt-map-filter" role="group" aria-label="Show on the map">
+              <button class="cat-chip on" data-mf="all">All</button>
+              <button class="cat-chip" data-mf="mine">Mine</button>
+              <button class="cat-chip" data-mf="trackers">Trackers</button>
+              <button class="cat-chip" data-mf="wifi">Wi-Fi</button>
+            </div>
+            <div class="btmap" id="bt-map"></div>
+            <p class="muted small" style="margin:10px 0 0">Distance is estimated from signal strength, so walls and bodies can make it off by two times or more. This computer has one antenna and can't tell which way a signal comes from, so devices are grouped by type within each band, not placed by direction. Hover a mark for details; click a Bluetooth device to open it.</p>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>Your devices nearby today</h2></div>
+            <div id="bt-today"></div>
+            <p class="muted small" style="margin:10px 0 0">Only devices you've paired or marked as yours are recorded, and only on this computer. Phones and tags change their Bluetooth address every so often, so an unpaired device may split into several entries.</p>
+          </div>
+        </div>
+        <div class="panel flush">
+          <div class="panel-head pad">
+            <h2>Nearby Bluetooth devices</h2>
+            <div class="seg small" id="ble-filter" role="group" aria-label="Filter nearby devices">
+              <button data-f="all" class="on">All</button>
+              <button data-f="named">Named</button>
+              <button data-f="trackers">Trackers</button>
+            </div>
+          </div>
+          <div class="cat-chips" id="ble-categories"></div>
+          <div class="scroll tall-scroll">
+            <table class="table compact" id="nearby-table">
+              <thead><tr><th>Device</th><th>Signal</th><th class="num">Distance</th><th>First heard</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <div class="empty" id="nearby-empty"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Your Bluetooth devices</h2><span class="muted small" id="bt-controller"></span></div>
+          <div id="paired"></div>
+        </div>
+      </section>
+
+      <!-- Network map -->
+      <section class="view" id="view-map" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Your network</h2><div class="legend" id="map-legend"></div></div>
+          <div class="netmap" id="netmap"></div>
+        </div>
+      </section>
+
+      <!-- Wi-Fi analyzer -->
+      <section class="view" id="view-wifi" hidden>
+        <div class="tiles" id="wifi-tiles"></div>
+        <div class="panel">
+          <div class="panel-head"><h2>2.4 GHz channels</h2><div class="legend" id="wifi24-legend"></div></div>
+          <div class="chart tall" id="wifi24-chart"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>5 GHz channels</h2></div>
+          <div class="chart tall" id="wifi5-chart"></div>
+        </div>
+        <div class="panel" id="wifi-advice"></div>
+      </section>
+
+      <!-- History -->
+      <section class="view" id="view-history" hidden>
+        <div class="toolbar">
+          <div class="seg" id="hist-range" role="group" aria-label="Time range">
+            <button data-f="24h" class="on">24 hours</button>
+            <button data-f="7d">7 days</button>
+            <button data-f="30d">30 days</button>
+          </div>
+          <span class="spacer"></span>
+          <span class="muted small" id="hist-note"></span>
+        </div>
+        <div class="tiles" id="hist-tiles"></div>
+        <div class="panel">
+          <div class="panel-head"><h2>Internet latency</h2><div class="legend" id="hist-lat-legend"></div></div>
+          <div class="chart tall" id="hist-lat-chart"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Packet loss</h2></div>
+          <div class="chart" id="hist-loss-chart"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Whole-network throughput</h2><div class="legend" id="hist-tp-legend"></div></div>
+          <div class="chart" id="hist-tp-chart"></div>
+        </div>
+        <div class="panel" id="hist-speed-panel">
+          <div class="panel-head"><h2>Speed tests</h2><div class="legend" id="hist-sp-legend"></div></div>
+          <div class="chart" id="hist-sp-chart"></div>
+          <h3 class="sub-head">Latency</h3>
+          <div class="chart short" id="hist-spl-chart"></div>
+          <h3 class="sub-head">Recent tests</h3>
+          <div id="hist-sp-table"></div>
+        </div>
+      </section>
+
+      <!-- Traffic -->
+      <section class="view" id="view-traffic" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Throughput <span class="muted">· last 5 minutes</span></h2>
+            <div class="legend" id="tr-legend"></div>
+          </div>
+          <div class="chart tall" id="tr-chart"></div>
+        </div>
+        <div class="panel flush" id="apps-panel" hidden>
+          <div class="panel-head pad"><h2>Apps on this computer</h2><span class="muted" id="apps-totals"></span></div>
+          <table class="table compact" id="apps-table">
+            <thead><tr><th>App</th><th class="num">Download now</th><th class="num">Upload now</th><th class="num">Downloaded</th><th class="num">Uploaded</th><th class="bar-col">Share</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="empty" id="apps-empty" hidden></div>
+        </div>
+        <div class="grid-2 wide-left">
+          <div class="panel flush">
+            <div class="panel-head pad"><h2>Top hosts</h2><span class="muted" id="tr-totals"></span></div>
+            <table class="table compact" id="host-table">
+              <thead><tr><th>Remote host</th><th>Ports</th><th class="num">In</th><th class="num">Out</th><th class="bar-col">Share</th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <div class="empty" id="host-empty" hidden></div>
+          </div>
+          <div class="panel flush">
+            <div class="panel-head pad">
+              <h2>DNS lookups</h2>
+              <div class="row">
+                <div class="seg small" id="dns-mode" role="group" aria-label="DNS view">
+                  <button data-f="log" class="on">Log</button>
+                  <button data-f="top">Top domains</button>
+                </div>
+                <input type="search" id="dns-search" placeholder="Filter…" aria-label="Filter DNS lookups">
+              </div>
+            </div>
+            <div class="scroll" id="dns-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Connections -->
+      <section class="view" id="view-connections" hidden>
+        <div class="toolbar">
+          <input type="search" id="conn-search" placeholder="Search process, address, domain…" aria-label="Search connections">
+          <div class="seg" id="conn-filter" role="group" aria-label="Filter connections">
+            <button data-f="internet" class="on">Internet</button>
+            <button data-f="active">All active</button>
+            <button data-f="listen">Listening</button>
+          </div>
+          <span class="spacer"></span>
+          <span class="muted" id="conn-count"></span>
+        </div>
+        <div class="panel flush">
+          <table class="table compact" id="conn-table">
+            <thead><tr><th>Process</th><th>Proto</th><th>Local</th><th>Remote</th><th>State</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="empty" id="conn-empty" hidden></div>
+        </div>
+      </section>
+
+      <!-- Alerts -->
+      <section class="view" id="view-alerts" hidden>
+        <div class="toolbar">
+          <div class="seg" id="alert-filter" role="group" aria-label="Filter alerts">
+            <button data-f="open" class="on">Open</button>
+            <button data-f="all">All</button>
+          </div>
+          <span class="spacer"></span>
+          <button class="btn" id="ack-all">Acknowledge all</button>
+          <button class="btn danger-ghost" id="clear-alerts">Clear history</button>
+        </div>
+        <div id="alert-list"></div>
+      </section>
+
+      <!-- Settings -->
+      <section class="view" id="view-settings" hidden>
+        <div class="panel">
+          <div class="panel-head"><h2>Traffic capture</h2></div>
+          <p class="muted">Capture reads packets to and from this computer, plus broadcast traffic every device on the LAN receives (ARP, DHCP). That powers traffic stats, the DNS log, and the spoofing, rogue-DHCP, port-scan and malware-lookup detectors. Other devices' private traffic isn't visible from a laptop on a switched or Wi-Fi network — to watch the whole network, run NetWatch on a machine connected to a mirrored switch port.</p>
+          <div class="row" id="capture-settings"></div>
+        </div>
+        <div class="panel" id="prefs">
+          <div class="panel-head"><h2>General</h2></div>
+          <dl class="facts">
+            <dt><label for="pref-theme">Appearance</label></dt>
+            <dd><select id="pref-theme">
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+              <option value="system">Match macOS</option>
+            </select></dd>
+            <dt><label for="pref-notify">System notifications</label></dt>
+            <dd><select id="pref-notify">
+              <option value="high">High-severity alerts only</option>
+              <option value="medium">Medium and high alerts</option>
+              <option value="low">All alerts except info</option>
+              <option value="off">Off</option>
+            </select>
+            <div class="muted small" style="margin-top:4px">Shown when the NetWatch window isn't in front. Devices you watch always notify when they join or leave, unless this is off.</div></dd>
+            <dt><label for="pref-tray-text">Menu-bar text</label></dt>
+            <dd><select id="pref-tray-text">
+              <option value="off">Icon only</option>
+              <option value="speed">Download and upload speed</option>
+              <option value="devices">Devices online and latency</option>
+            </select>
+            <div class="muted small" style="margin-top:4px">Shown beside the menu-bar icon and updated every 2 seconds. Click the icon for the mini dashboard.</div></dd>
+            <dt>Keep running when closed</dt>
+            <dd class="row"><button class="switch" role="switch" id="pref-keep" data-pref="1" aria-checked="true" aria-label="Keep running when closed"></button>
+              <span class="muted small">Closing the window leaves NetWatch monitoring from the menu bar. Quit from its menu.</span></dd>
+            <dt>Open at login</dt>
+            <dd class="row"><button class="switch" role="switch" id="pref-login" data-pref="1" aria-checked="true" aria-label="Open at login"></button>
+              <span class="muted small">Starts quietly in the menu bar. If you move NetWatch, open it once from its new place.</span></dd>
+            <dt>Morning summary</dt>
+            <dd class="row"><button class="switch" role="switch" id="pref-summary" data-pref="1" aria-checked="true" aria-label="Morning summary"></button>
+              <span class="muted small">A notification at 8 am with yesterday's data use, outages, new devices and alerts.</span></dd>
+            <dt>Look up public IP and provider</dt>
+            <dd class="row"><button class="switch" role="switch" id="pref-public" data-pref="1" aria-checked="true" aria-label="Look up public IP"></button>
+              <span class="muted small">One request to ipinfo.io per hour.</span></dd>
+          </dl>
+        </div>
+        <div class="panel" id="location-prefs">
+          <div class="panel-head"><h2>Location</h2></div>
+          <p class="muted small">NetWatch uses your location only to show nearby Wi-Fi network names and to warn you if an unknown tracker travels with you. It never leaves this Mac: it is kept in memory, never saved or sent anywhere, and never recorded alongside other people's Wi-Fi networks or Bluetooth devices.</p>
+          <dl class="facts">
+            <dt>Use Location Services</dt>
+            <dd class="row"><button class="switch" role="switch" id="pref-location" data-pref="1" aria-checked="false" aria-label="Use Location Services"></button>
+              <span class="muted small">Turning it on makes macOS ask for permission. Wi-Fi names and BSSIDs appear in the Wi-Fi analyzer, the Connection page and the look-alike Wi-Fi check. The tracker warning also needs the nearby Bluetooth scan: if an unknown tracker is near this Mac before and after it moved 1 km or more over 15 minutes or more, that's a High alert.</span></dd>
+            <dt>Permission</dt>
+            <dd id="location-status"></dd>
+          </dl>
+        </div>
+        <div class="panel" id="audit-prefs">
+          <div class="panel-head"><h2>Security audits</h2></div>
+          <p class="muted small">Checks of your own network and this computer, with results on the Security → Audit page. Each one takes a baseline the first time it looks and alerts on changes after that.</p>
+          <dl class="facts">
+            <dt>Weekly port audit</dt>
+            <dd class="row"><button class="switch" role="switch" id="pref-port-audit" data-pref="1" aria-checked="true" aria-label="Weekly port audit"></button>
+              <span class="muted small">Once a week, checks the common ports on every online device and alerts when one newly opens.</span></dd>
+            <dt>New listening apps</dt>
+            <dd class="row"><button class="switch" role="switch" id="pref-listener-watch" data-pref="1" aria-checked="true" aria-label="New listening apps"></button>
+              <span class="muted small">Alerts when an app on this computer starts accepting connections from the network.</span></dd>
+            <dt>Startup items</dt>
+            <dd class="row"><button class="switch" role="switch" id="pref-launch-watch" data-pref="1" aria-checked="true" aria-label="Startup items"></button>
+              <span class="muted small">Alerts when a launch agent or daemon is added (macOS). Serious if it runs from a temporary or hidden folder or isn't properly signed.</span></dd>
+            <dt>DNS and router changes</dt>
+            <dd class="row"><button class="switch" role="switch" id="pref-dns-watch" data-pref="1" aria-checked="true" aria-label="DNS and router changes"></button>
+              <span class="muted small">Alerts when this network's DNS servers change to ones it never used, or its DHCP server changes.</span></dd>
+            <dt>Look-alike Wi-Fi</dt>
+            <dd class="row"><button class="switch" role="switch" id="pref-twin-watch" data-pref="1" aria-checked="true" aria-label="Look-alike Wi-Fi"></button>
+              <span class="muted small">Watches for another access point using your network's name with weaker security. Needs Wi-Fi names to be visible.</span></dd>
+            <dt>Certificates and HTTPS</dt>
+            <dd class="row"><button class="switch" role="switch" id="pref-cert-checks" data-pref="1" aria-checked="true" aria-label="Certificates and HTTPS"></button>
+              <span class="muted small">Checks the HTTPS certificates of watched sites every 6 hours, and once a day whether something is intercepting HTTPS.</span></dd>
+          </dl>
+        </div>
+        <div class="panel" id="export-prefs">
+          <div class="panel-head"><h2>Expert mode &amp; log export</h2></div>
+          <p class="muted small">For people who want the technical picture, or who collect logs elsewhere. New alerts can be written to a file and sent to a SIEM or log collector; nothing leaves this computer unless you enter an address below.</p>
+          <dl class="facts">
+            <dt>Expert mode</dt>
+            <dd class="row"><button class="switch" role="switch" id="pref-expert" data-pref="1" aria-checked="false" aria-label="Expert mode"></button>
+              <span class="muted small">Each alert gets an "Expert details" section: the MITRE ATT&amp;CK technique and tactic, why it matters, what to do, and the raw alert as JSON.</span></dd>
+            <dt>Log file</dt>
+            <dd class="row"><button class="switch" role="switch" id="pref-log-file" data-pref="1" aria-checked="false" aria-label="Log file"></button>
+              <span class="muted small">Appends each new alert as one JSON line to alerts.jsonl in the data folder, starting a new file at 10 MB (the old one becomes alerts.1.jsonl).</span>
+              <button class="btn small" data-action="show-log" id="show-log">Show log file</button></dd>
+            <dt><label for="pref-siem-target">Send to a SIEM</label></dt>
+            <dd><div class="row">
+                <input type="search" id="pref-siem-target" class="small-input wide" placeholder="host:port" aria-label="SIEM address" spellcheck="false" autocomplete="off">
+                <select id="pref-siem-format" aria-label="Message format">
+                  <option value="cef">CEF</option>
+                  <option value="json">JSON</option>
+                </select>
+                <button class="btn" data-action="siem-test" id="siem-test">Send test event</button>
+              </div>
+              <div class="muted small" style="margin-top:4px">Each new alert goes to this address as a syslog message (RFC 5424) over UDP, for example siem.lan:514. Leave it empty to switch this off. Only that address is ever contacted.</div></dd>
+          </dl>
+        </div>
+        <div class="panel" id="data-plan">
+          <div class="panel-head"><h2>Data allowance</h2><button class="btn" id="pref-save-plan">Save</button></div>
+          <p class="muted small">If your internet plan has a monthly data cap (common on 4G and 5G), NetWatch alerts at 80% and 100% of it, using your router's counters. It also forecasts where the month is heading and warns once if you're on course to go over.</p>
+          <dl class="facts">
+            <dt><label for="pref-cap">Monthly allowance</label></dt>
+            <dd class="row"><input type="number" id="pref-cap" min="0" step="1" placeholder="No limit" class="num-input"> <span>GB</span></dd>
+            <dt><label for="pref-cycle">Renews on day</label></dt>
+            <dd class="row"><input type="number" id="pref-cycle" min="1" max="28" step="1" class="num-input small"> <span class="muted small">of each month</span></dd>
+            <dt><label for="pref-st-schedule">Scheduled speed test</label></dt>
+            <dd><div class="row">
+              <select id="pref-st-schedule">
+                <option value="off">Off</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+              </select>
+              <select id="pref-st-size" aria-label="Scheduled speed test size">
+                <option value="light">Light (about 10 MB)</option>
+                <option value="full">Full (about 38 MB)</option>
+              </select></div>
+              <div class="muted small" style="margin-top:4px" id="speedtest-note"></div></dd>
+          </dl>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Threat intelligence</h2><button class="btn" id="update-feeds">Update now</button></div>
+          <dl class="facts" id="feed-facts"></dl>
+          <p class="muted small">Sources: abuse.ch URLhaus (malware domains), abuse.ch Feodo Tracker (botnet servers), abuse.ch ThreatFox (malware domains and botnet command-and-control servers), and the Wireshark manufacturer database (device vendors). Lists refresh daily, except the larger ThreatFox domain list, which waits 3 days between downloads, even when you press Update now, to save data.</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Your blocklist</h2><button class="btn" id="save-custom">Save</button></div>
+          <p class="muted small">One domain or IP per line. Lookups of these domains (and their subdomains) or traffic with these IPs raise an alert. Lines starting with # are ignored.</p>
+          <textarea id="custom-list" rows="7" spellcheck="false" placeholder="# Example&#10;tracker.example.com&#10;203.0.113.50"></textarea>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>About</h2></div>
+          <dl class="facts" id="about-facts"></dl>
+        </div>
+      </section>
+      </div>
+    </main>
+  </div>
+
+  <aside class="drawer" id="drawer" hidden aria-label="Device details">
+    <div class="drawer-head">
+      <h2 id="drawer-title"></h2>
+      <button class="icon-btn" id="drawer-close" aria-label="Close">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
+  </aside>
+
+  <aside class="drawer" id="bt-drawer" hidden aria-label="Bluetooth device details">
+    <div class="drawer-head">
+      <h2 id="bt-drawer-title"></h2>
+      <button class="icon-btn" data-btclose aria-label="Close">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="drawer-body" id="bt-drawer-body"></div>
+  </aside>
+
+  <aside class="locate" id="locate" hidden aria-label="Locate a Bluetooth device">
+    <div class="drawer-head">
+      <h2>Locate · <span id="locate-title"></span></h2>
+      <div class="row"><button class="btn small" id="locate-beep" data-action="locate-beep">Beeps off</button>
+      <button class="icon-btn" data-action="locate-close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    </div>
+    <div class="drawer-body" id="locate-body"></div>
+  </aside>
+
+  <div class="palette" id="palette" hidden>
+    <div class="palette-box" role="dialog" aria-label="Search NetWatch">
+      <div class="palette-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+        <input type="text" id="palette-input" placeholder="Search pages, devices and actions…" autocomplete="off" spellcheck="false"></div>
+      <div class="palette-list" id="palette-list"></div>
+      <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span><span><kbd>⌘1</kbd>–<kbd>⌘7</kbd> sections</span></div>
+    </div>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div class="tooltip" id="tooltip" hidden></div>
+
+  <script src="network.js"></script>
+  <script src="bluetooth.js"></script>
+  <script src="security.js"></script>
+  <script src="audit.js"></script>
+  <script src="timeline.js"></script>
+  <script src="insights.js"></script>
+  <script src="tools.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
