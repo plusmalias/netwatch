@@ -113,6 +113,19 @@ fn forget_device(core: Ctx, mac: String) {
 }
 
 #[tauri::command]
+fn merge_devices(core: Ctx, a: String, b: String) -> Result<String, String> {
+    core.merge_devices(&a, &b)
+}
+
+#[tauri::command]
+async fn ping_device(core: State<'_, Arc<Core>>, mac: String, count: Option<usize>) -> Result<Vec<Option<f32>>, String> {
+    let core = core.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || core.ping_device(&mac, count.unwrap_or(5)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn ack_alert(core: Ctx, id: Option<u64>) {
     core.acknowledge(id)
 }
@@ -391,6 +404,8 @@ fn main() {
             trust_all,
             set_label,
             forget_device,
+            merge_devices,
+            ping_device,
             ack_alert,
             clear_alerts,
             list_connections,

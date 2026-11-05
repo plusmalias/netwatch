@@ -32,6 +32,7 @@ const T_APP_LAYER: Technique = ("T1071", "Application Layer Protocol");
 const T_ARP: Technique = ("T1557.002", "Adversary-in-the-Middle: ARP Cache Poisoning");
 const T_DHCP: Technique = ("T1557.003", "Adversary-in-the-Middle: DHCP Spoofing");
 const T_TWIN: Technique = ("T1557.004", "Adversary-in-the-Middle: Evil Twin");
+const T_MASQ: Technique = ("T1036", "Masquerading");
 
 pub const KINDS: &[KindInfo] = &[
     // ---- network attacks (packet capture)
@@ -262,6 +263,17 @@ pub const KINDS: &[KindInfo] = &[
         ],
     },
     KindInfo {
+        kind: "identity_change",
+        techniques: &[T_MASQ],
+        tactic: "Defense Evasion",
+        why: "A device you trusted now describes itself differently when it asks for an address. Updates and resets do this, but so does another device that copied its MAC address to slip past MAC filtering and inherit its trust.",
+        steps: &[
+            "Check whether the named device was updated, reset or replaced recently; if so, acknowledge the alert.",
+            "If not, see whether the original device is switched off or away while this one is online; a clone usually appears when the original isn't there.",
+            "Don't rely on MAC filtering. Change the Wi-Fi password if you can't account for the change.",
+        ],
+    },
+    KindInfo {
         kind: "presence",
         techniques: &[],
         tactic: "",
@@ -444,7 +456,7 @@ mod tests {
     const KNOWN_KINDS: &[&str] = &[
         "arp_spoof", "beacon", "ble_spam", "ble_tracker", "bt_battery", "c2_connection", "c2_traffic", "cert",
         "daily_summary", "data_cap", "data_forecast", "dhcp_change", "dns_change", "dns_hijack", "evil_twin", "exposed_service",
-        "ip_conflict", "launch_item", "link_downgrade", "malicious_domain", "new_device", "new_listener", "outage",
+        "identity_change", "ip_conflict", "launch_item", "link_downgrade", "malicious_domain", "new_device", "new_listener", "outage",
         "port_audit", "port_audit_summary", "port_forward", "port_scan", "presence", "rogue_dhcp", "suspicious_port",
         "tls_intercept", "tracker_following", "wifi_security",
     ];

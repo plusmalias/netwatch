@@ -4,7 +4,7 @@
 
 use crate::util::{is_unicast_mac, norm_mac, quiet_command};
 use simple_dns::rdata::RData;
-use simple_dns::{Name, Packet, Question, CLASS, TYPE};
+use simple_dns::{Name, Packet, PacketFlag, Question, CLASS, TYPE};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream, UdpSocket};
@@ -315,11 +315,35 @@ fn strip_local(name: &str) -> String {
 /// What an mDNS response says about the device that sent it.
 pub fn parse_mdns(src: Ipv4Addr, data: &[u8]) -> Option<MdnsInfo> {
     let pkt = Packet::parse(data).ok()?;
+    // Queries carry "known answers": records about *other* devices that the
+    // asker already has cached. Only responses describe their sender.
+    if !pkt.has_flags(PacketFlag::RESPONSE) {
+        return None;
+    }
     let mut info = MdnsInfo {
         ip: Some(src),
         ..Default::default()
     };
-    for rr in pkt.answers.iter().chain(&pkt.additional_records) {
+    let records = || pkt.answers.iter().chain(&pkt.additional_records);
+    // A response can describe other hosts too (a Bonjour sleep proxy answers
+    // for sleeping Macs). Skip service instances whose host is someone else.
+    let key = |n: &str| n.trim_end_matches('.').to_lowercase();
+    let mut addr: HashMap<String, Ipv4Addr> = HashMap::new();
+    let mut srv_host: HashMap<String, String> = HashMap::new();
+    for rr in records() {
+        match &rr.rdata {
+            RData::A(a) => {
+                addr.insert(key(&rr.name.to_string()), Ipv4Addr::from(a.address));
+            }
+            RData::SRV(srv) => {
+                srv_host.insert(key(&rr.name.to_string()), key(&srv.target.to_string()));
+            }
+            _ => {}
+        }
+    }
+    let foreign_host = |host: &str| addr.get(&key(host)).is_some_and(|ip| *ip != src);
+    let foreign = |instance: &str| srv_host.get(&key(instance)).is_some_and(|h| foreign_host(h));
+    for rr in records() {
         let owner = rr.name.to_string();
         match &rr.rdata {
             RData::A(a) if Ipv4Addr::from(a.address) == src => {
@@ -338,6 +362,9 @@ pub fn parse_mdns(src: Ipv4Addr, data: &[u8]) -> Option<MdnsInfo> {
                         info.services.insert(svc);
                     }
                 } else if let Some(svc) = service_label(&owner) {
+                    if foreign(&target) {
+                        continue;
+                    }
                     info.services.insert(svc);
                     let instance = target.split("._").next().unwrap_or("").trim();
                     if !instance.is_empty() && !instance.starts_with('_') {
@@ -346,9 +373,12 @@ pub fn parse_mdns(src: Ipv4Addr, data: &[u8]) -> Option<MdnsInfo> {
                 }
             }
             RData::SRV(srv) => {
-                info.hostname
-                    .get_or_insert_with(|| strip_local(&srv.target.to_string()));
+                let host = srv.target.to_string();
+                if !foreign_host(&host) {
+                    info.hostname.get_or_insert_with(|| strip_local(&host));
+                }
             }
+            RData::TXT(_) if foreign(&owner) => {}
             RData::TXT(txt) => {
                 let attrs = txt.attributes();
                 for key in ["md", "model", "usb_MDL", "ty"] {
@@ -502,7 +532,7 @@ mod tests {
         let text = "Neighbor                Linklayer Address Expire(O) Expire(I)          Netif Refs Prbs\n\
 192.168.0.1             0:11:22:33:44:55  2m25s     2m11s          en0    1\n\
 192.168.0.7             (incomplete)      expired   expired        en0    1  3\n\
-192.168.0.103           72:63:9f:6d:83:2b 1m3s      4s             en0    1\n\
+192.168.0.103           72:00:00:00:a0:01 1m3s      4s             en0    1\n\
 192.168.0.255           ff:ff:ff:ff:ff:ff (none)    (none)         en0\n\
 224.0.0.251             1:0:5e:0:0:fb     (none)    (none)         en0\n\
 10.8.0.2                0:aa:bb:cc:dd:ee  1m0s      1m0s           utun3  1\n";
@@ -516,7 +546,7 @@ mod tests {
                 },
                 ArpEntry {
                     ip: Ipv4Addr::new(192, 168, 0, 103),
-                    mac: "72:63:9f:6d:83:2b".into(),
+                    mac: "72:00:00:00:a0:01".into(),
                     heard_expire_s: Some(4),
                 },
             ]
@@ -623,6 +653,55 @@ mod tests {
         assert!(info.services.is_empty());
         // An answer about some other address is ignored.
         assert!(parse_mdns(Ipv4Addr::new(192, 168, 0, 9), &p.build_bytes_vec().unwrap()).is_none());
+    }
+
+    #[test]
+    fn ignores_known_answers_in_other_devices_queries() {
+        // An iPad asking for companion-link services lists the ones it knows,
+        // including this Mac's; that's not the iPad's own name.
+        let mut p = Packet::new_query(0);
+        p.questions.push(Question::new(
+            Name::new_unchecked("_companion-link._tcp.local"),
+            TYPE::PTR.into(),
+            CLASS::IN.into(),
+            false,
+        ));
+        p.answers.push(ResourceRecord::new(
+            Name::new_unchecked("_companion-link._tcp.local"),
+            CLASS::IN,
+            4500,
+            RData::PTR(PTR(Name::new_unchecked("Alex’s MacBook Pro._companion-link._tcp.local"))),
+        ));
+        assert!(parse_mdns(Ipv4Addr::new(192, 168, 0, 103), &p.build_bytes_vec().unwrap()).is_none());
+    }
+
+    #[test]
+    fn skips_services_a_sleep_proxy_answers_for_another_host() {
+        let src = Ipv4Addr::new(192, 168, 0, 20);
+        let mut p = Packet::new_reply(0);
+        p.answers.push(ResourceRecord::new(
+            Name::new_unchecked("_smb._tcp.local"),
+            CLASS::IN,
+            120,
+            RData::PTR(PTR(Name::new_unchecked("Office Mac._smb._tcp.local"))),
+        ));
+        p.additional_records.push(ResourceRecord::new(
+            Name::new_unchecked("Office Mac._smb._tcp.local"),
+            CLASS::IN,
+            120,
+            RData::SRV(SRV { priority: 0, weight: 0, port: 445, target: Name::new_unchecked("office-mac.local") }),
+        ));
+        p.additional_records.push(ResourceRecord::new(
+            Name::new_unchecked("office-mac.local"),
+            CLASS::IN,
+            120,
+            RData::A(A { address: u32::from(Ipv4Addr::new(192, 168, 0, 31)) }),
+        ));
+        assert!(parse_mdns(src, &p.build_bytes_vec().unwrap()).is_none());
+        // The Mac itself sending the same response is fine.
+        let info = parse_mdns(Ipv4Addr::new(192, 168, 0, 31), &p.build_bytes_vec().unwrap()).unwrap();
+        assert_eq!(info.friendly_name.as_deref(), Some("Office Mac"));
+        assert_eq!(info.hostname.as_deref(), Some("office-mac"));
     }
 
     #[test]

@@ -21,6 +21,7 @@ const state = {
   conns: [],
   connError: "",
   devFilter: "all",
+  devNet: "all", // network (router MAC) shown in Devices, or "all"
   connFilter: "internet",
   alertFilter: "open",
   dnsMode: "log",
@@ -618,6 +619,8 @@ function renderOverview() {
       <div class="sub"${fc?.f.projected != null ? ` title="${esc(cycleSummary())}"` : ""}>${state.router?.counters ? dataSub : state.router?.checked ? "Your router doesn't report usage" : "Asking your router…"}</div></div>`;
 
   renderThroughput($("#ov-chart"), $("#ov-legend"), $("#ov-chart-title"), { preferHousehold: true });
+  renderScorePanel();
+  renderReadiness();
 
   const recent = [...state.alerts].reverse().slice(0, 6);
   $("#ov-alerts").innerHTML = recent.length
@@ -636,6 +639,7 @@ function renderOverview() {
 function filteredDevices() {
   const q = $("#dev-search").value.trim().toLowerCase();
   return state.devices
+    .filter((d) => state.devNet === "all" || (state.devNet === "current" ? onNetwork(d, currentNetwork()) : onNetwork(d, state.devNet)))
     .filter((d) => state.devFilter !== "online" || isOnline(d))
     .filter((d) => state.devFilter !== "untrusted" || !d.trusted)
     .filter((d) => state.devFilter !== "watched" || d.notify_presence)
@@ -644,6 +648,12 @@ function filteredDevices() {
 }
 
 function renderDevices() {
+  const nets = knownNetworks();
+  const sel = $("#dev-net");
+  sel.hidden = nets.length < 2;
+  const opts = `<option value="all">All networks</option><option value="current">This network</option>${nets.map((n) => `<option value="${esc(n.id)}">${esc(n.name)}${n.current ? " (connected)" : ""}</option>`).join("")}`;
+  if (sel.dataset.sig !== opts) { sel.innerHTML = opts; sel.dataset.sig = opts; }
+  sel.value = state.devNet;
   const list = filteredDevices();
   $("#dev-table tbody").innerHTML = list.map((d) => {
     const [kind, kindLabel] = deviceKind(d);
@@ -654,6 +664,8 @@ function renderDevices() {
     if (isAsleep(d)) chips.unshift('<span class="chip">Asleep</span>');
     for (const p of d.open_ports || []) if (RISKY_PORTS.has(p)) chips.push(`<span class="chip bad">${PORT_LABEL[p]} open</span>`);
     if (d.notify_presence) chips.push('<span class="chip">Watched</span>');
+    if (!d.is_self && !d.is_gateway && d.network && d.network !== currentNetwork() && state.devNet === "all") chips.push(`<span class="chip">${esc(networkName(d.network))}</span>`);
+    if ((d.aliases || []).length) chips.push(`<span class="chip" title="${esc(d.aliases.join(", "))}">${d.aliases.length + 1} addresses</span>`);
     for (const t of d.tags || []) chips.push(`<span class="chip tag">#${esc(t)}</span>`);
     return `<tr class="click" data-mac="${esc(d.mac)}">
       <td><span class="dot ${presenceDot(d)}" title="${presenceWord(d)}"></span></td>
@@ -1009,7 +1021,7 @@ function renderDrawer() {
   if (!d) { closeDrawer(); return; }
   const checking = state.portChecks.has(d.mac);
   // Only rebuild when something shown changed (or a minute passed, for "x ago").
-  const sig = JSON.stringify(d) + checking + Math.floor(Date.now() / 60000);
+  const sig = JSON.stringify(d) + checking + JSON.stringify(pings.get(d.mac) || null) + Math.floor(Date.now() / 60000);
   if (sig === state.drawerSig) return;
   state.drawerSig = sig;
   const [, kindLabel] = deviceKind(d);
@@ -1025,7 +1037,7 @@ function renderDrawer() {
         : '<span class="muted">None of the common ports are open.</span>';
   const fact = (k, v) => (v ? `<dt>${k}</dt><dd>${v}</dd>` : "");
   // Don't rebuild while the user is typing in one of the drawer's fields.
-  const typing = ["notes-input", "tags-input"].includes(document.activeElement?.id);
+  const typing = ["notes-input", "tags-input", "merge-with"].includes(document.activeElement?.id);
   if (typing) { state.drawerSig = ""; return; }
   // Keep focus and typing intact if the user is editing the name.
   const editing = document.activeElement?.id === "label-input";
@@ -1049,6 +1061,8 @@ function renderDrawer() {
         ${fact("Operating system", os ? `${esc(os[0])} <span class="muted small">· from ${esc(os[1])}</span>` : "")}
         ${fact("IP address", `<span class="mono">${esc(d.ip)}</span>`)}
         ${fact("MAC address", `<span class="mono">${esc(d.mac)}</span>${isRandomMac(d.mac) ? '<div class="muted small">Randomized for privacy, so the vendor is hidden</div>' : ""}`)}
+        ${fact("Also seen as", (d.aliases || []).length ? `${d.aliases.map((m) => `<span class="mono">${esc(m)}</span>`).join("<br>")}<div class="muted small">Earlier private addresses of this device, merged into one entry</div>` : "")}
+        ${fact("Network", d.is_self ? "" : d.network ? `${esc(networkName(d.network))}${d.network === currentNetwork() ? ' <span class="muted small">· connected now</span>' : ""}` : "")}
         ${fact("Vendor", esc(d.vendor))}
         ${fact("Hostname", esc(d.hostname))}
         ${fact("Advertised as", esc(d.friendly_name))}
@@ -1061,6 +1075,18 @@ function renderDrawer() {
         ${fact("Last seen", `${esc(fullTime(d.last_seen))} (${ago(d.last_seen)})`)}
       </dl>
     </div>
+    ${d.is_self ? "" : (() => {
+      const r = deviceRisk(d);
+      return `<div>
+      <h3>Risk</h3>
+      <div class="row" style="align-items:flex-start"><span class="risk-pill ${r.level}">${r.score}</span><div><b>${RISK_WORD[r.level]}</b>
+        ${r.reasons.length ? `<ul class="risk-reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : '<div class="muted small">Trusted, no risky ports, no open alerts.</div>'}</div></div>
+    </div>`;
+    })()}
+    ${d.is_self ? "" : `<div>
+      <h3>Ping</h3>
+      ${pingHtml(d)}
+    </div>`}
     <div>
       <h3>Open ports</h3>
       ${portHtml}
@@ -1086,6 +1112,7 @@ function renderDrawer() {
       <div class="row"><button class="switch" role="switch" aria-checked="${d.trusted}" data-trust="${esc(d.mac)}"></button>
       <span>${d.trusted ? "Trusted — you recognize this device" : "Not trusted yet"}</span></div>
     </div>
+    ${mergeHtml(d)}
     ${d.is_self || d.is_gateway ? "" : `<div><button class="btn danger-ghost" data-action="forget">Forget device</button>
       <p class="muted small" style="margin-top:6px">It reappears (and alerts as new) if it shows up again.</p></div>`}`;
   if (editing) {
@@ -1122,13 +1149,13 @@ function toast(a) {
 const RENDERERS = {
   overview: () => renderOverview(),
   devices: () => renderDevices(),
-  network: () => renderNetwork(),
-  security: () => renderSecurity(),
+  network: () => { renderNetwork(); renderReadiness(); },
+  security: () => { renderSecurity(); $("#sec-risky").innerHTML = riskiestHtml(8); },
   audit: () => renderAudit(),
   timeline: () => renderTimeline(),
   map: () => (typeof renderMap === "function" ? renderMap() : null),
   wifi: () => (typeof renderWifiAnalyzer === "function" ? renderWifiAnalyzer() : null),
-  history: () => (typeof renderHistory === "function" ? renderHistory() : null),
+  history: () => { renderHistory(); renderHeatmap(); },
   bluetooth: () => renderBluetooth(),
   traffic: () => renderTraffic(),
   connections: () => renderConnections(),
@@ -1165,6 +1192,7 @@ document.addEventListener("click", async (e) => {
   if (!t) return;
   if (t.dataset.view) return setView(t.dataset.view);
   if (t.dataset.group) return setView(lastInGroup[t.dataset.group] || NAV[t.dataset.group][0]);
+  if (t.id === "sec-risk-map") NMAP.color = "risk";
   if (t.dataset.goto) {
     if (t.dataset.filter && t.dataset.goto === "devices") {
       state.devFilter = t.dataset.filter;
@@ -1224,6 +1252,7 @@ document.addEventListener("click", async (e) => {
   if (t.dataset.url) return call("open_url", { url: t.dataset.url });
   const seg = t.closest(".seg");
   if (seg && t.dataset.f) {
+    if (seg.id === "heat-metric") { heat.metric = t.dataset.f; segOn(seg, t); return render(); }
     const key = { "dev-filter": "devFilter", "conn-filter": "connFilter", "alert-filter": "alertFilter", "dns-mode": "dnsMode", "usage-view": "usageView", "ble-filter": "bleFilter", "tl-filter": "tlFilter", "hist-range": "histRange" }[seg.id];
     if (key) { state[key] = t.dataset.f; segOn(seg, t); return render(); }
   }
@@ -1309,6 +1338,10 @@ document.addEventListener("click", async (e) => {
     case "wake":
       await call("wake_device", { mac });
       return toast({ severity: "info", title: "Wake-up packet sent", detail: "If the device supports Wake-on-LAN and it's enabled, it should come online within a minute." });
+    case "ping-now":
+      return pingNow(mac);
+    case "merge":
+      return mergeDevices(mac);
     case "save-meta":
       await call("set_device_meta", { mac, notes: $("#notes-input").value, tags: $("#tags-input").value.split(",") });
       return toast({ severity: "info", title: "Saved", detail: "Notes and tags updated." });
@@ -1378,6 +1411,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && e.target.id === "trace-target") $('[data-action="trace"]').click();
 });
 ["#dev-search", "#conn-search", "#dns-search"].forEach((s) => $(s).addEventListener("input", render));
+$("#dev-net").addEventListener("change", (e) => { state.devNet = e.target.value; render(); });
 $("#palette-input").addEventListener("input", () => { if (state.palette) { state.palette.sel = 0; renderPalette(); } });
 window.addEventListener("resize", render);
 
@@ -1522,6 +1556,7 @@ async function init() {
     renderIf("network", "history");
   });
 
+  wireMap();
   setInterval(refreshConnections, 3000);
   setInterval(render, 30000); // keep "x minutes ago" fresh
   render();

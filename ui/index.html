@@ -61,6 +61,13 @@
           <div class="chart" id="ov-chart"></div>
         </div>
         <div class="grid-2">
+          <div class="panel" id="ov-score"></div>
+          <div class="panel">
+            <div class="panel-head"><h2>What your connection is good for</h2><button class="btn link" data-goto="network">Details</button></div>
+            <div id="ov-ready"></div>
+          </div>
+        </div>
+        <div class="grid-2">
           <div class="panel">
             <div class="panel-head"><h2>Recent alerts</h2><button class="btn link" data-goto="alerts">View all</button></div>
             <div id="ov-alerts"></div>
@@ -92,6 +99,10 @@
       <!-- Security checkup -->
       <section class="view" id="view-security" hidden>
         <div class="panel sec-summary" id="sec-summary"></div>
+        <div class="panel">
+          <div class="panel-head"><h2>Devices to look at first <span class="muted">· risk from open ports, port forwards, alerts and trust</span></h2><button class="btn link" data-goto="map" id="sec-risk-map">See on the map</button></div>
+          <div id="sec-risky"></div>
+        </div>
         <div id="sec-list"></div>
         <p class="muted small">NetWatch checks what it can see from this computer. It can't check your router's admin password or firmware version; log in to the router to confirm those are up to date and not the defaults.</p>
       </section>
@@ -106,6 +117,7 @@
       <section class="view" id="view-devices" hidden>
         <div class="toolbar">
           <input type="search" id="dev-search" placeholder="Search name, IP, MAC, vendor…" aria-label="Search devices">
+          <select id="dev-net" aria-label="Network"></select>
           <div class="seg" id="dev-filter" role="group" aria-label="Filter devices">
             <button data-f="all" class="on">All</button>
             <button data-f="online">Online</button>
@@ -133,6 +145,10 @@
           <div class="usage-summary" id="mobile-now"></div>
           <h3 class="sub-head" style="margin-top:4px">Recent changes</h3>
           <div id="mobile-log"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>What your connection is good for</h2><button class="btn small" data-action="speed-test">Run speed test</button></div>
+          <div id="net-ready"></div>
         </div>
         <div class="panel">
           <div class="panel-head">
@@ -269,10 +285,38 @@
 
       <!-- Network map -->
       <section class="view" id="view-map" hidden>
+        <div class="toolbar map-toolbar">
+          <select id="map-net" aria-label="Network to show"></select>
+          <div class="seg small" id="map-layout" role="group" aria-label="Layout">
+            <button data-f="ring" class="on">Ring</button>
+            <button data-f="type">By type</button>
+            <button data-f="latency">By latency</button>
+          </div>
+          <div class="seg small" id="map-color" role="group" aria-label="Colour by">
+            <button data-f="status" class="on">Status</button>
+            <button data-f="risk">Risk</button>
+          </div>
+          <input type="search" id="map-search" placeholder="Highlight…" aria-label="Highlight devices">
+          <span class="spacer"></span>
+          <button class="btn small" id="map-fit" title="Reset zoom and pan">Fit</button>
+          <button class="btn small" id="map-reset" title="Put dragged devices back">Reset layout</button>
+          <button class="btn small" id="map-export-png">Save PNG</button>
+          <button class="btn small" id="map-export-svg">Save SVG</button>
+        </div>
         <div class="panel">
           <div class="panel-head"><h2>Your network</h2><div class="legend" id="map-legend"></div></div>
+          <div class="cat-chips map-chips" id="map-kinds"></div>
           <div class="netmap" id="netmap"></div>
+          <div class="map-time">
+            <button class="btn small" id="map-play">▶ Replay</button>
+            <button class="btn small" id="map-speed" title="Replay speed">1×</button>
+            <input type="range" id="map-time" aria-label="Show the network at this time">
+            <span class="map-time-label" id="map-time-label">Live</span>
+            <button class="btn small link" id="map-live" hidden>Back to live</button>
+          </div>
+          <p class="muted small map-help">Drag devices to arrange them (positions are remembered per network and layout), scroll to zoom, drag the background to pan, and right-click a device for actions. Replay shows who was online over the last 7 days.</p>
         </div>
+        <div class="map-menu" id="map-menu" hidden></div>
       </section>
 
       <!-- Wi-Fi analyzer -->
@@ -301,6 +345,14 @@
           <span class="muted small" id="hist-note"></span>
         </div>
         <div class="tiles" id="hist-tiles"></div>
+        <div class="panel">
+          <div class="panel-head"><h2>Best time of day <span class="muted">· last 30 days</span></h2>
+            <div class="seg small" id="heat-metric" role="group" aria-label="Heatmap shows">
+              <button data-f="latency" class="on">Latency</button>
+              <button data-f="loss">Packet loss</button>
+            </div></div>
+          <div id="hist-heat"></div>
+        </div>
         <div class="panel">
           <div class="panel-head"><h2>Internet latency</h2><div class="legend" id="hist-lat-legend"></div></div>
           <div class="chart tall" id="hist-lat-chart"></div>
@@ -592,6 +644,8 @@
   <script src="timeline.js"></script>
   <script src="insights.js"></script>
   <script src="tools.js"></script>
+  <script src="extras.js"></script>
+  <script src="netmap.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

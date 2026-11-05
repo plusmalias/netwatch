@@ -1,69 +1,7 @@
 "use strict";
-// Network map, Wi-Fi channel analyzer, long-term history and the privacy
+// Wi-Fi channel analyzer, long-term history and the privacy
 // (VPN / DNS leak) check. Shares helpers and `state` with app.js, which
 // loads after this file.
-
-// ------------------------------------------------------------------ network map
-
-// An ICONS svg string, positioned inside a parent SVG.
-const placeIcon = (svg, x, y, size) => svg.replace("<svg ", `<svg x="${x - size / 2}" y="${y - size / 2}" width="${size}" height="${size}" `);
-
-function renderMap() {
-  const el = $("#netmap");
-  const W = Math.max(640, el.clientWidth || 900);
-  const devices = state.devices.filter((d) => !d.is_gateway);
-  const gw = state.devices.find((d) => d.is_gateway);
-  const n = devices.length;
-  const rings = n > 16 ? 2 : 1;
-  const H = rings === 2 ? 640 : 540;
-  const cx = W / 2;
-  const cy = H / 2 + 34;
-  const R1 = Math.min(W * 0.36, H * 0.34);
-  // Group similar devices next to each other around the ring.
-  const order = ["computer", "phone", "media", "speaker", "home", "printer", "storage", "device"];
-  const sorted = [...devices].sort((a, b) => (b.is_self - a.is_self) || order.indexOf(deviceKind(a)[0]) - order.indexOf(deviceKind(b)[0]) || ipNum(a.ip) - ipNum(b.ip));
-  const h = state.health[state.health.length - 1];
-  let links = "";
-  let nodes = "";
-  // Internet above the router.
-  const iy = 52;
-  const inetDown = !!state.outage;
-  links += `<line class="map-link ${inetDown ? "down" : "up"}" x1="${cx}" y1="${iy + 22}" x2="${cx}" y2="${cy - 30}"/>`;
-  links += `<text class="map-link-label" x="${cx + 10}" y="${(iy + cy) / 2}">${inetDown ? "Down" : h?.internet_ms != null ? fmtMs(h.internet_ms) : ""}</text>`;
-  nodes += `<g class="map-node inet" data-tip="${esc(`Internet${state.publicInfo?.org ? ` · ${state.publicInfo.org.replace(/^AS\d+\s+/, "")}` : ""}`)}">
-    <circle cx="${cx}" cy="${iy}" r="22"/>${placeIcon(TILE_ICONS.globe, cx, iy, 20)}
-    <text class="map-label strong" x="${cx - 32}" y="${iy + 5}" text-anchor="end">Internet</text></g>`;
-  sorted.forEach((d, i) => {
-    const ring = rings === 2 && i % 2 === 1 ? 2 : 1;
-    const R = ring === 2 ? R1 * 1.32 : R1 * (rings === 2 ? 0.82 : 1);
-    const a = -Math.PI / 2 + (i / Math.max(1, n)) * Math.PI * 2 + Math.PI / Math.max(1, n);
-    const x = cx + Math.cos(a) * R;
-    const y = cy + Math.sin(a) * R * 0.78;
-    const st = presenceDot(d);
-    links += `<line class="map-link ${st === "off" ? "off" : "up"}" x1="${cx}" y1="${cy}" x2="${x}" y2="${y}"/>`;
-    const [kind, kindLabel] = deviceKind(d);
-    const name = deviceName(d);
-    const tip = [name, d.ip, kindLabel, presenceWord(d), d.rtt_ms != null && d.online && !isAsleep(d) ? fmtMs(d.rtt_ms) : null].filter(Boolean).join(" · ");
-    const below = Math.sin(a) > -0.2;
-    nodes += `<g class="map-node ${st}${d.is_self ? " self" : ""}" data-mac="${esc(d.mac)}" data-tip="${esc(tip)}">
-      <circle cx="${x}" cy="${y}" r="20"/>${placeIcon(ICONS[kind], x, y, 17)}
-      <circle class="map-status ${st}" cx="${x + 14}" cy="${y - 14}" r="5"/>
-      <text class="map-label" x="${x}" y="${below ? y + 36 : y - 28}" text-anchor="middle">${esc(name.length > 20 ? name.slice(0, 19) + "…" : name)}</text>
-      <text class="map-sub" x="${x}" y="${below ? y + 50 : y - 42}" text-anchor="middle">${esc(d.is_self ? "This computer" : d.ip)}</text></g>`;
-  });
-  const gwName = gw ? (state.router?.identity?.model ? `${state.router.identity.manufacturer || ""} ${state.router.identity.model}`.trim() : deviceName(gw)) : "Router";
-  nodes += `<g class="map-node router"${gw ? ` data-mac="${esc(gw.mac)}"` : ""} data-tip="${esc(`${gwName} · ${state.net?.gateway_ip || ""}${state.mifi ? ` · ${state.mifi.generation}` : ""}`)}">
-    <circle cx="${cx}" cy="${cy}" r="30"/>${placeIcon(ICONS.router, cx, cy, 24)}
-    <text class="map-label strong" x="${cx}" y="${cy + 48}" text-anchor="middle">${esc(gwName)}</text>
-    <text class="map-sub" x="${cx}" y="${cy + 62}" text-anchor="middle">${esc(state.net?.gateway_ip || "")}${state.mifi ? ` · ${esc(state.mifi.generation)}` : ""}</text></g>`;
-  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Map of the devices on your network">${links}${nodes}</svg>`;
-  const on = devices.filter((d) => d.online && !isAsleep(d)).length;
-  const asleep = devices.filter(isAsleep).length;
-  $("#map-legend").innerHTML = `
-    <span class="key"><i class="dot good"></i>Online <b>${on}</b></span>
-    <span class="key"><i class="dot idle"></i>Asleep <b>${asleep}</b></span>
-    <span class="key"><i class="dot off"></i>Offline <b>${devices.length - on - asleep}</b></span>`;
-}
 
 // ------------------------------------------------------------------ Wi-Fi analyzer
 

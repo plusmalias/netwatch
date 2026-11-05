@@ -147,6 +147,7 @@ impl Core {
         let _ = std::fs::create_dir_all(&dir);
         let mut store = DeviceStore::load(dir.join("devices.json"));
         let baseline = !store.devices.is_empty();
+        tidy_store(&mut store);
         // Online flags on disk are from the last run; recompute them quietly.
         store.update_online(now_ms());
         let settings = Settings::load(&dir.join("settings.json"));
@@ -229,6 +230,7 @@ impl Core {
                     last_title = title;
                 }
                 if core.devices_dirty.swap(false, Ordering::SeqCst) {
+                    core.merge_rotated();
                     unsaved = true;
                     core.emit_devices();
                 }
@@ -461,10 +463,17 @@ impl Core {
         hostname: Option<String>,
         extra: impl FnOnce(&mut Device) -> bool,
     ) {
+        let gateway = self.net.read().unwrap().as_ref().and_then(|n| n.gateway_mac.clone());
         let mut store = self.store.lock().unwrap();
         let seen = store.observe(mac, ip, source, now_ms());
+        // This computer's private Wi-Fi address differs per network; keep
+        // one record for it.
+        let mut changed = source == "self" && store.claim_self(mac);
         let dev = store.devices.get_mut(mac).expect("just observed");
-        let mut changed = seen.changed | extra(dev);
+        changed |= seen.changed | extra(dev);
+        if gateway.is_some() && dev.network != gateway {
+            dev.network = gateway;
+        }
         if dev.vendor.is_none() {
             dev.vendor = self.vendor_for(mac);
             changed |= dev.vendor.is_some();
@@ -512,7 +521,8 @@ impl Core {
 
     pub fn update_device(&self, mac: &str, f: impl FnOnce(&mut Device)) -> Result<(), String> {
         let mut store = self.store.lock().unwrap();
-        let dev = store.devices.get_mut(mac).ok_or("unknown device")?;
+        let key = store.resolve(mac).ok_or("unknown device")?;
+        let dev = store.devices.get_mut(&key).ok_or("unknown device")?;
         f(dev);
         store.save();
         drop(store);
@@ -530,16 +540,81 @@ impl Core {
 
     pub fn forget_device(&self, mac: &str) {
         let mut store = self.store.lock().unwrap();
-        store.devices.remove(mac);
+        if let Some(key) = store.resolve(mac) {
+            store.devices.remove(&key);
+        }
         store.save();
         drop(store);
         self.emit_devices();
     }
 
+    /// The user says two records are one device. Returns the surviving MAC.
+    pub fn merge_devices(&self, a: &str, b: &str) -> Result<String, String> {
+        let mut store = self.store.lock().unwrap();
+        let keep = store.merge(a, b)?;
+        store.save();
+        drop(store);
+        self.emit_devices();
+        Ok(keep)
+    }
+
+    /// Merges records of devices that switched private MAC address and
+    /// settles the "new device" alerts those switches raised.
+    fn merge_rotated(&self) {
+        let pairs = self.store.lock().unwrap().merge_rotated();
+        if pairs.is_empty() {
+            return;
+        }
+        let mut log = self.alerts.lock().unwrap();
+        for a in log.alerts.iter_mut() {
+            if a.kind == "new_device" && pairs.iter().any(|(_, new)| *new == a.key) {
+                a.acknowledged = true;
+            }
+        }
+        log.save();
+        self.emit("alerts", log.alerts.clone());
+    }
+
+    /// Pings one device a few times, for the "Ping now" button. Falls back
+    /// to TCP probes where unprivileged ICMP isn't available. `None` = lost.
+    pub fn ping_device(&self, mac: &str, count: usize) -> Result<Vec<Option<f32>>, String> {
+        let ip: Ipv4Addr = {
+            let store = self.store.lock().unwrap();
+            let key = store.resolve(mac).ok_or("unknown device")?;
+            store.devices[&key].ip.parse().map_err(|_| "device has no IPv4 address")?
+        };
+        if !self.in_subnet(ip) {
+            return Err("that device isn't on the network you're connected to".into());
+        }
+        let mut out = Vec::with_capacity(count);
+        for i in 0..count.clamp(1, 20) {
+            if i > 0 {
+                thread::sleep(Duration::from_millis(400));
+            }
+            let reply = match ping::ping_many(&[ip], Duration::from_millis(1500)) {
+                Ok(r) => r.get(&ip).copied(),
+                Err(_) => ping::tcp_probe_many(&[ip], Duration::from_millis(1500)).get(&ip).copied(),
+            };
+            out.push(reply.map(|r| (r.rtt_ms * 10.0).round() / 10.0));
+        }
+        if out.iter().any(Option::is_some) {
+            let last = out.iter().rev().flatten().next().copied();
+            let mut store = self.store.lock().unwrap();
+            if let Some(d) = store.resolve(mac).and_then(|k| store.devices.get_mut(&k)) {
+                d.last_reply = now_ms();
+                d.rtt_ms = last;
+            }
+            drop(store);
+            self.devices_dirty.store(true, Ordering::SeqCst);
+        }
+        Ok(out)
+    }
+
     pub fn check_ports(self: &Arc<Self>, mac: String) -> Result<(), String> {
         let ip: Ipv4Addr = {
             let store = self.store.lock().unwrap();
-            let dev = store.devices.get(&mac).ok_or("unknown device")?;
+            let key = store.resolve(&mac).ok_or("unknown device")?;
+            let dev = &store.devices[&key];
             dev.ip.parse().map_err(|_| "device has no IPv4 address")?
         };
         if !self.in_subnet(ip) && self.net.read().unwrap().as_ref().map(|n| n.ip) != Some(ip) {
@@ -603,10 +678,6 @@ impl Core {
             let host = sysinfo::System::host_name()
                 .map(|h| h.trim_end_matches(".local").to_string());
             self.observe(mac, net.ip, "self", host);
-            let _ = self.update_device(mac, |d| {
-                d.is_self = true;
-                d.trusted = true;
-            });
         }
         if let (Some(ip), Some(mac)) = (net.gateway_ip, &net.gateway_mac) {
             self.observe(mac, ip, "gateway", None);
@@ -864,15 +935,20 @@ impl Core {
                     fingerprint,
                 } => {
                     if self.in_subnet(ip) {
+                        let mut identity = None;
                         self.observe_with(&mac, ip, source, hostname, |d| match fingerprint {
                             Some((vendor, params)) => {
                                 let before = (d.dhcp_vendor.clone(), d.dhcp_params.clone());
+                                identity = identity_change(d, vendor.as_deref(), params.as_deref());
                                 d.dhcp_vendor = vendor.or(d.dhcp_vendor.take());
                                 d.dhcp_params = params.or(d.dhcp_params.take());
                                 before != (d.dhcp_vendor.clone(), d.dhcp_params.clone())
                             }
                             None => false,
                         });
+                        if let Some(a) = identity {
+                            self.alert(a);
+                        }
                     }
                 }
                 Event::Dns(entry) => {
@@ -1036,9 +1112,10 @@ impl Core {
 
     /// Sends a Wake-on-LAN packet to a known device.
     pub fn wake_device(&self, mac: &str) -> Result<(), String> {
-        if !self.store.lock().unwrap().devices.contains_key(mac) {
+        let Some(key) = self.store.lock().unwrap().resolve(mac) else {
             return Err("unknown device".into());
-        }
+        };
+        let mac = key.as_str();
         let net = self.net.read().unwrap().clone().ok_or("Not connected to a network")?;
         crate::tools::wake(mac, net.ip, net.prefix)
     }
@@ -1082,15 +1159,24 @@ impl Core {
 
     /// Writes an export (built by the UI) to the Downloads folder.
     pub fn save_export(&self, name: &str, content: &str) -> Result<String, String> {
-        let ok = (name.ends_with(".csv") || name.ends_with(".html"))
+        let ok = EXPORT_EXTS.iter().any(|x| name.ends_with(x))
             && name.starts_with("NetWatch-")
             && name.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
         if !ok {
             return Err("invalid file name".into());
         }
+        // Images come from the window as base64.
+        let bytes = if name.ends_with(".png") {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD
+                .decode(content.trim())
+                .map_err(|_| "invalid image data")?
+        } else {
+            content.as_bytes().to_vec()
+        };
         let dir = self.app.path().download_dir().map_err(|e| e.to_string())?;
         let path = dir.join(name);
-        std::fs::write(&path, content).map_err(|e| e.to_string())?;
+        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
         Ok(path.display().to_string())
     }
 
@@ -1099,7 +1185,7 @@ impl Core {
         let dir = self.app.path().download_dir().map_err(|e| e.to_string())?;
         let p = std::path::Path::new(path);
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if p.parent() != Some(dir.as_path()) || !name.starts_with("NetWatch-") || !(name.ends_with(".html") || name.ends_with(".csv")) {
+        if p.parent() != Some(dir.as_path()) || !name.starts_with("NetWatch-") || !EXPORT_EXTS.iter().any(|x| name.ends_with(x)) {
             return Err("not a NetWatch export".into());
         }
         #[cfg(target_os = "macos")]
@@ -1121,6 +1207,86 @@ impl Core {
         self.emit("feeds", self.feed_info());
         Ok(())
     }
+}
+
+/// A known device's DHCP fingerprint changed: its MAC address may now be
+/// used by a different device (MAC cloning gets past MAC filtering and
+/// inherits the original's trust). OS updates also change fingerprints, so
+/// only a changed OS family (option 60) is worth more than a low alert.
+fn identity_change(d: &Device, vendor: Option<&str>, params: Option<&str>) -> Option<AlertDraft> {
+    if d.is_self || d.is_gateway || !d.trusted {
+        return None;
+    }
+    let family = |v: &str| v.split([' ', '-', ':']).next().unwrap_or("").to_lowercase();
+    let vendor_changed = matches!((d.dhcp_vendor.as_deref(), vendor), (Some(a), Some(b)) if family(a) != family(b));
+    let params_changed = matches!((d.dhcp_params.as_deref(), params), (Some(a), Some(b)) if a != b);
+    if !vendor_changed && !params_changed {
+        return None;
+    }
+    let name = describe(d);
+    let (severity, what) = if vendor_changed {
+        (
+            Severity::Medium,
+            format!(
+                "now identifies as \"{}\" instead of \"{}\"",
+                vendor.unwrap_or(""),
+                d.dhcp_vendor.as_deref().unwrap_or("")
+            ),
+        )
+    } else {
+        (Severity::Low, "asked for a different set of DHCP options than before".to_string())
+    };
+    Some(AlertDraft {
+        severity,
+        kind: "identity_change",
+        key: d.mac.clone(),
+        title: format!("{name} looks like a different device"),
+        detail: format!(
+            "The device using {name}'s MAC address ({}) {what}. A system update can do this. If {name} wasn't updated or reset, another device may be copying its MAC address to get the trust you gave it.",
+            d.mac
+        ),
+    })
+}
+
+/// File types NetWatch writes to Downloads: device lists, reports, map images.
+const EXPORT_EXTS: &[&str] = &[".csv", ".html", ".svg", ".png"];
+
+/// One-off repairs to records saved by earlier versions, run at startup.
+fn tidy_store(store: &mut DeviceStore) {
+    store.assign_networks();
+    // Earlier versions filed each private address this computer used as a
+    // separate device. The newest one is the address in use.
+    let newest_self = store
+        .devices
+        .values()
+        .filter(|d| d.is_self)
+        .max_by_key(|d| d.last_seen)
+        .map(|d| d.mac.clone());
+    let mut changed = newest_self.is_some_and(|m| store.claim_self(&m));
+    changed |= store.clear_borrowed_names(&own_names());
+    changed |= store.clear_borrowed_services();
+    changed |= !store.merge_rotated().is_empty();
+    if changed {
+        store.save();
+    }
+}
+
+/// The names this computer advertises on the network.
+fn own_names() -> Vec<String> {
+    let mut names: Vec<String> = sysinfo::System::host_name()
+        .map(|h| h.trim_end_matches(".local").to_string())
+        .into_iter()
+        .collect();
+    #[cfg(target_os = "macos")]
+    for key in ["ComputerName", "LocalHostName"] {
+        if let Ok(o) = std::process::Command::new("/usr/sbin/scutil").args(["--get", key]).output() {
+            let n = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if o.status.success() && !n.is_empty() {
+                names.push(n);
+            }
+        }
+    }
+    names
 }
 
 fn merge_mdns(into: &mut MdnsInfo, from: MdnsInfo) {
@@ -1205,5 +1371,34 @@ fn new_device_alert(d: &Device) -> AlertDraft {
             "{name} ({}, MAC {}) appeared on your network for the first time.{privacy} If you don't recognize it, mark it trusted once identified or change your Wi-Fi password.",
             d.ip, d.mac
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_change_flags_trusted_devices_whose_fingerprint_changes() {
+        let mut d = Device {
+            mac: "aa:bb:cc:00:00:01".into(),
+            label: Some("Lounge PC".into()),
+            trusted: true,
+            dhcp_vendor: Some("MSFT 5.0".into()),
+            dhcp_params: Some("1,3,6,15,31,33".into()),
+            ..Default::default()
+        };
+        // First fingerprint or the same one again: nothing to say.
+        assert!(identity_change(&d, Some("MSFT 5.0"), Some("1,3,6,15,31,33")).is_none());
+        let a = identity_change(&d, Some("android-dhcp-14"), Some("1,3,6,15,26,28")).unwrap();
+        assert_eq!(a.kind, "identity_change");
+        assert!(matches!(a.severity, Severity::Medium));
+        assert!(a.title.contains("Lounge PC"));
+        let a = identity_change(&d, Some("MSFT 5.0"), Some("1,3,6,15,31,33,43")).unwrap();
+        assert!(matches!(a.severity, Severity::Low));
+        d.trusted = false;
+        assert!(identity_change(&d, Some("android-dhcp-14"), None).is_none());
+        let fresh = Device { trusted: true, ..Default::default() };
+        assert!(identity_change(&fresh, Some("MSFT 5.0"), Some("1,3")).is_none());
     }
 }
