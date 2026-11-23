@@ -103,7 +103,9 @@ impl Settings {
 
     pub fn save(&self, path: &Path) -> Result<(), String> {
         let json = serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::write(path, json).map_err(|e| e.to_string())
+        let tmp = path.with_extension("tmp");
+        std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, path).map_err(|e| e.to_string())
     }
 
     pub fn sanitized(mut self) -> Self {
@@ -252,5 +254,17 @@ mod tests {
         }
         let s = Settings { speedtest_schedule: "hourly".into(), speedtest_size: "huge".into(), ..Default::default() }.sanitized();
         assert_eq!((s.speedtest_schedule.as_str(), s.speedtest_size.as_str()), ("off", "light"));
+    }
+
+    #[test]
+    fn saves_and_reloads_atomically() {
+        let dir = std::env::temp_dir().join(format!("netwatch-settings-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        let s = Settings { notify: "high".into(), expert_mode: true, ..Default::default() };
+        s.save(&path).unwrap();
+        assert!(!path.with_extension("tmp").exists());
+        assert_eq!(Settings::load(&path), s);
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

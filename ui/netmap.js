@@ -34,8 +34,8 @@ function savePins() {
 }
 const pinKey = () => `${NMAP.net}|${NMAP.layout}`;
 
-const KIND_ORDER = ["computer", "phone", "media", "speaker", "home", "printer", "storage", "device"];
-const KIND_NAMES = { computer: "Computers", phone: "Phones and tablets", media: "TV and streaming", speaker: "Speakers", home: "Smart home", printer: "Printers", storage: "Storage", device: "Other" };
+const KIND_ORDER = ["computer", "phone", "media", "speaker", "camera", "home", "printer", "storage", "device"];
+const KIND_NAMES = { computer: "Computers", phone: "Phones and tablets", media: "TV and streaming", speaker: "Speakers", camera: "Cameras", home: "Smart home", printer: "Printers", storage: "Storage", device: "Other" };
 
 // Online at replay time `t`, from the device's recorded sessions.
 const wasOnline = (d, t) => (d.sessions || []).some(([a, b]) => a <= t && t <= b + 60_000);

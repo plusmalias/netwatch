@@ -53,7 +53,10 @@ impl AlertLog {
 
     pub fn save(&self) {
         if let Ok(json) = serde_json::to_vec(&self.alerts) {
-            let _ = std::fs::write(&self.path, json);
+            let tmp = self.path.with_extension("tmp");
+            if std::fs::write(&tmp, json).is_ok() {
+                let _ = std::fs::rename(tmp, &self.path);
+            }
         }
     }
 
@@ -133,5 +136,20 @@ mod tests {
         log.acknowledge(Some(a.id));
         assert!(log.push(draft("1.2.3.4"), 4_000).1);
         assert!(log.push(draft("5.6.7.8"), 3_000 + MERGE_WINDOW_MS + 1).1);
+    }
+
+    #[test]
+    fn saves_and_reloads_atomically_without_leaving_tmp() {
+        let dir = std::env::temp_dir().join(format!("netwatch-alerts-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("alerts.json");
+        let mut log = AlertLog::load(path.clone());
+        log.push(draft("10.0.0.5"), 12_345);
+        log.save();
+        assert!(!path.with_extension("tmp").exists());
+        let back = AlertLog::load(path);
+        assert_eq!(back.alerts.len(), 1);
+        assert_eq!(back.alerts[0].key, "10.0.0.5");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

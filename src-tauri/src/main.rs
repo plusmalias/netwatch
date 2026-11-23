@@ -26,6 +26,7 @@ mod mifi;
 mod net;
 mod oui;
 mod ping;
+mod risk;
 mod settings;
 mod store;
 mod tools;
@@ -174,6 +175,16 @@ fn get_custom_blocklist(core: Ctx) -> String {
 #[tauri::command]
 fn set_custom_blocklist(core: Ctx, text: String) -> Result<(), String> {
     core.set_custom_blocklist(&text)
+}
+
+#[tauri::command]
+fn add_custom_blocklist_entry(core: Ctx, entry: String) -> Result<bool, String> {
+    core.add_custom_blocklist_entry(&entry)
+}
+
+#[tauri::command]
+fn get_incident_report(core: Ctx) -> risk::IncidentReport {
+    core.incident_report()
 }
 
 #[tauri::command]
@@ -415,6 +426,8 @@ fn main() {
             update_feeds,
             get_custom_blocklist,
             set_custom_blocklist,
+            add_custom_blocklist_entry,
+            get_incident_report,
             run_speed_test,
             get_settings,
             set_settings,

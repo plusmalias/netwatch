@@ -63,7 +63,7 @@ function securityChecks() {
   const exposed = state.devices.filter((d) => (d.open_ports || []).some((p) => RISKY_PORTS.has(p)));
   const checked = state.devices.filter((d) => d.open_ports != null).length;
   if (exposed.length) add("bad", `Remote-access services open on ${exposed.length} device${exposed.length > 1 ? "s" : ""}`, `${exposed.map((d) => `${deviceName(d)} (${d.open_ports.filter((p) => RISKY_PORTS.has(p)).map((p) => PORT_LABEL[p]).join(", ")})`).join("; ")}. Turn these off if you don't use them.`, { label: "Review devices", goto: "devices" });
-  else if (checked) add("good", "No risky services found", `Checked ${checked} device${checked > 1 ? "s" : ""} for Telnet, FTP, Remote Desktop and VNC.`);
+  else if (checked) add("good", "No risky services found", `Checked ${checked} device${checked > 1 ? "s" : ""} for Telnet, FTP, Remote Desktop, VNC and ADB.`);
   else add("info", "Devices' open ports not checked", "Open a device and press Check common ports to look for remote-access services.", { label: "Open devices", goto: "devices" });
 
   // Alerts and detection

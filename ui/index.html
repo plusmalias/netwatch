@@ -100,7 +100,12 @@
       <section class="view" id="view-security" hidden>
         <div class="panel sec-summary" id="sec-summary"></div>
         <div class="panel">
-          <div class="panel-head"><h2>Devices to look at first <span class="muted">· risk from open ports, port forwards, alerts and trust</span></h2><button class="btn link" data-goto="map" id="sec-risk-map">See on the map</button></div>
+          <div class="panel-head"><h2>Devices to look at first <span class="muted">· risk from open ports, port forwards, alerts and trust</span></h2>
+            <div class="row">
+              <button class="btn small" data-action="export-incident">Export incident JSON</button>
+              <button class="btn link" data-goto="map" id="sec-risk-map">See on the map</button>
+            </div>
+          </div>
           <div id="sec-risky"></div>
         </div>
         <div id="sec-list"></div>
@@ -396,7 +401,7 @@
           <div class="panel flush">
             <div class="panel-head pad"><h2>Top hosts</h2><span class="muted" id="tr-totals"></span></div>
             <table class="table compact" id="host-table">
-              <thead><tr><th>Remote host</th><th>Ports</th><th class="num">In</th><th class="num">Out</th><th class="bar-col">Share</th></tr></thead>
+              <thead><tr><th>Remote host</th><th>Ports</th><th class="num">In</th><th class="num">Out</th><th class="bar-col">Share</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
             <div class="empty" id="host-empty" hidden></div>
@@ -431,7 +436,7 @@
         </div>
         <div class="panel flush">
           <table class="table compact" id="conn-table">
-            <thead><tr><th>Process</th><th>Proto</th><th>Local</th><th>Remote</th><th>State</th></tr></thead>
+            <thead><tr><th>Process</th><th>Proto</th><th>Local</th><th>Remote</th><th>State</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
           <div class="empty" id="conn-empty" hidden></div>
@@ -441,11 +446,19 @@
       <!-- Alerts -->
       <section class="view" id="view-alerts" hidden>
         <div class="toolbar">
+          <input type="search" id="alert-search" placeholder="Search alerts, IP, MAC, domain…" aria-label="Search alerts">
           <div class="seg" id="alert-filter" role="group" aria-label="Filter alerts">
             <button data-f="open" class="on">Open</button>
             <button data-f="all">All</button>
           </div>
+          <div class="seg" id="alert-sev" role="group" aria-label="Filter by severity">
+            <button data-f="all" class="on">Any</button>
+            <button data-f="high">High</button>
+            <button data-f="medium">Medium</button>
+            <button data-f="low">Low</button>
+          </div>
           <span class="spacer"></span>
+          <button class="btn" data-action="export-incident">Export incident JSON</button>
           <button class="btn" id="ack-all">Acknowledge all</button>
           <button class="btn danger-ghost" id="clear-alerts">Clear history</button>
         </div>

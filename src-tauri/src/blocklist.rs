@@ -173,6 +173,46 @@ impl Blocklist {
     }
 }
 
+/// Validates and appends a single domain or IP to `custom.txt` unless it is
+/// already listed. Returns `Ok(true)` if newly added, `Ok(false)` if already present.
+pub fn append_custom_entry(path: &Path, entry: &str) -> Result<bool, String> {
+    let clean = entry.trim().trim_end_matches('.').to_ascii_lowercase();
+    let is_ip = clean.parse::<IpAddr>().is_ok();
+    let is_domain = !is_ip
+        && !clean.is_empty()
+        && clean.len() <= 253
+        && clean.contains('.')
+        && clean != "localhost"
+        && !clean.starts_with(['-', '.'])
+        && clean
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.');
+    if !is_ip && !is_domain {
+        return Err("Enter a valid domain name or IP address.".into());
+    }
+    let existing = std::fs::read_to_string(path).unwrap_or_default();
+    let mut bl = Blocklist::default();
+    bl.add_list(&existing, CUSTOM_SOURCE);
+    let present = if is_ip {
+        clean.parse::<IpAddr>().ok().is_some_and(|ip| bl.ips.contains_key(&ip))
+    } else {
+        bl.domains.contains_key(&clean)
+    };
+    if present {
+        return Ok(false);
+    }
+    let mut updated = existing;
+    if !updated.is_empty() && !updated.ends_with('\n') {
+        updated.push('\n');
+    }
+    updated.push_str(&clean);
+    updated.push('\n');
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, updated).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 /// Whether a feed saved `age_secs` ago (`None` if never) is due again.
 fn feed_due(age_secs: Option<u64>, max_age_hours: u64) -> bool {
     age_secs.is_none_or(|a| a >= max_age_hours * 3600)
@@ -380,6 +420,24 @@ mod tests {
         age("threatfox-domains.txt", 1);
         age("threatfox-ips.csv", 25);
         assert!(any_due(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn appends_and_deduplicates_custom_blocklist_entries() {
+        let dir = std::env::temp_dir().join(format!("netwatch-custom-bl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(CUSTOM_FILE);
+        assert_eq!(append_custom_entry(&path, "Evil.Example.com.").unwrap(), true);
+        assert_eq!(append_custom_entry(&path, "evil.example.com").unwrap(), false);
+        assert_eq!(append_custom_entry(&path, "203.0.113.99").unwrap(), true);
+        assert_eq!(append_custom_entry(&path, "203.0.113.99").unwrap(), false);
+        assert!(append_custom_entry(&path, "not a host").is_err());
+        assert!(append_custom_entry(&path, "localhost").is_err());
+        let bl = Blocklist::load(&dir);
+        assert!(bl.match_domain("sub.evil.example.com").is_some());
+        assert!(bl.match_ip(&"203.0.113.99".parse().unwrap()).is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

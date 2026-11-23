@@ -899,29 +899,30 @@ impl Core {
                 }
             }
             for (target, up, down_for) in changes {
-                let (kind, title, detail) = if up {
-                    (
-                        "host_up",
-                        format!("{target} is reachable again"),
-                        format!("{target} answered again after being unreachable for {}.", health::fmt_duration(down_for)),
-                    )
+                let draft = if up {
+                    AlertDraft {
+                        severity: Severity::Low,
+                        kind: "host_up",
+                        key: format!("{target}:{now}"),
+                        title: format!("{target} is reachable again"),
+                        detail: format!(
+                            "{target} answered again after being unreachable for {}.",
+                            health::fmt_duration(down_for)
+                        ),
+                    }
                 } else {
-                    (
-                        "host_down",
-                        format!("{target} isn't responding"),
-                        format!(
+                    AlertDraft {
+                        severity: Severity::Low,
+                        kind: "host_down",
+                        key: format!("{target}:{now}"),
+                        title: format!("{target} isn't responding"),
+                        detail: format!(
                             "NetWatch has had no answer from {target} for the last {} checks. If your internet is fine, the problem is likely on that service's side.",
                             WATCH_FAILS_TO_DECLARE
                         ),
-                    )
+                    }
                 };
-                self.alert(AlertDraft {
-                    severity: Severity::Low,
-                    kind,
-                    key: format!("{target}:{now}"),
-                    title,
-                    detail,
-                });
+                self.alert(draft);
             }
             self.emit("watch", self.mon.lock().unwrap().watch.clone());
             thread::sleep(WATCH_INTERVAL);

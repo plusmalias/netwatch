@@ -24,6 +24,7 @@ const state = {
   devNet: "all", // network (router MAC) shown in Devices, or "all"
   connFilter: "internet",
   alertFilter: "open",
+  alertSev: "all",
   dnsMode: "log",
   drawerMac: null,
   drawerSig: "",
@@ -146,6 +147,7 @@ const ICONS = {
   phone: '<svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.5h2"/></svg>',
   media: '<svg viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="12" rx="1.5"/><path d="M8 21h8"/><path d="m10 8.5 4.5 2.5-4.5 2.5z"/></svg>',
   speaker: '<svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2"/><circle cx="12" cy="14.5" r="3"/><path d="M12 7h.01"/></svg>',
+  camera: '<svg viewBox="0 0 24 24"><rect x="2.5" y="7" width="13.5" height="10" rx="2"/><path d="m16 10.5 5.5-2.5v8L16 13.5"/></svg>',
   printer: '<svg viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="1.5"/><path d="M6 14h12v7H6z"/></svg>',
   home: '<svg viewBox="0 0 24 24"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-5h4v5"/></svg>',
   storage: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>',
@@ -188,11 +190,12 @@ const HIDDEN_SERVICES = new Set(["device-info", "services"]);
 
 const PORT_LABEL = {
   21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP", 53: "DNS", 80: "HTTP", 139: "NetBIOS", 443: "HTTPS",
-  445: "SMB", 548: "AFP", 554: "RTSP", 631: "IPP", 1883: "MQTT", 3389: "RDP", 5000: "UPnP/HTTP",
-  5900: "VNC", 7000: "AirPlay", 8008: "HTTP alt", 8009: "Cast", 8080: "HTTP proxy", 8443: "HTTPS alt",
-  8883: "MQTT TLS", 9100: "Printing", 32400: "Plex", 49152: "UPnP", 62078: "iOS sync",
+  445: "SMB", 548: "AFP", 554: "RTSP", 631: "IPP", 1883: "MQTT", 2323: "Telnet alt", 3389: "RDP",
+  5000: "UPnP/HTTP", 5555: "ADB", 5900: "VNC", 6379: "Redis", 7000: "AirPlay", 8008: "HTTP alt",
+  8009: "Cast", 8080: "HTTP proxy", 8123: "Home Assistant", 8443: "HTTPS alt", 8883: "MQTT TLS",
+  9100: "Printing", 32400: "Plex", 37777: "Camera/DVR", 49152: "UPnP", 62078: "iOS sync",
 };
-const RISKY_PORTS = new Set([21, 23, 3389, 5900]);
+const RISKY_PORTS = new Set([21, 23, 2323, 3389, 5555, 5900]);
 
 function serviceLabels(d) {
   return [...new Set(d.services.filter((s) => !HIDDEN_SERVICES.has(s)).map((s) => SERVICE_LABEL[s] || s))];
@@ -200,13 +203,16 @@ function serviceLabels(d) {
 
 function deviceKind(d) {
   const has = (s) => d.services.includes(s);
-  const text = `${d.label || ""} ${d.friendly_name || ""} ${d.vendor || ""} ${d.model || ""} ${d.hostname || ""}`.toLowerCase();
+  const ports = d.open_ports || [];
+  const banners = Object.values(d.port_banners || {}).join(" ");
+  const text = `${d.label || ""} ${d.friendly_name || ""} ${d.vendor || ""} ${d.model || ""} ${d.hostname || ""} ${banners}`.toLowerCase();
   if (d.is_gateway) return ["router", "Router"];
   if (d.is_self) return ["computer", "This computer"];
   if (has("ipp") || has("ipps") || has("printer") || has("pdl-datastream")) return ["printer", "Printer"];
+  if (ports.includes(554) || ports.includes(37777) || /hikvision|dahua|reolink|amcrest|axis|ipcam|camera|wyze ?cam|eufy ?cam|arlo/.test(text)) return ["camera", "Camera"];
   if (has("googlecast") || has("amzn-wplay") || has("androidtvremote2") || has("mediaremotetv") || /tv|roku|chromecast|fire ?tv/.test(text)) return ["media", "TV / streaming"];
   if (has("sonos") || has("raop") || has("spotify-connect") || /sonos|speaker|homepod|echo/.test(text)) return ["speaker", "Speaker"];
-  if (has("hap") || has("matter") || /espressif|tuya|shelly|nest|ring|hue|philips|ecobee|wyze/.test(text)) return ["home", "Smart home"];
+  if (has("hap") || has("matter") || ports.includes(8123) || /home assistant|espressif|tuya|shelly|nest|ring|hue|philips|ecobee|wyze/.test(text)) return ["home", "Smart home"];
   if (/synology|qnap|nas|western digital/.test(text)) return ["storage", "Storage"];
   if (/macbook|imac|mac mini|mac studio|desktop|laptop/.test(text)) return ["computer", "Computer"];
   if (has("remotepairing") || has("apple-mobdev2") || /iphone|ipad|android|pixel|galaxy|phone/.test(text)) return ["phone", "Phone / tablet"];
@@ -217,10 +223,11 @@ function deviceKind(d) {
 }
 
 // Best guess at the operating system, from DHCP fingerprints, advertised
-// services and model names, then the ping TTL. Returns [os, how we know].
+// services, banners and model names, then the ping TTL. Returns [os, how we know].
 function osGuess(d) {
   const v = (d.dhcp_vendor || "").toLowerCase();
   const has = (s) => d.services.includes(s);
+  const banners = Object.values(d.port_banners || {}).join(" ").toLowerCase();
   const text = `${d.model || ""} ${d.hostname || ""} ${d.friendly_name || ""}`.toLowerCase();
   if (d.is_self && /Mac/.test(navigator.userAgent)) return ["macOS", "this computer"];
   if (v.startsWith("msft")) return ["Windows", "DHCP"];
@@ -229,6 +236,10 @@ function osGuess(d) {
   if (/macbook|imac|macmini|mac ?mini|macpro|mac studio|^mac\d/.test(text)) return ["macOS", "model name"];
   if (has("androidtvremote2")) return ["Android TV", "advertised services"];
   if (has("companion-link")) return ["Apple (macOS or iOS)", "advertised services"];
+  if (/ubuntu/.test(banners)) return ["Ubuntu Linux", "service banner"];
+  if (/debian|raspbian/.test(banners)) return ["Debian Linux", "service banner"];
+  if (/freebsd/.test(banners)) return ["FreeBSD", "service banner"];
+  if (/dropbear|openwrt|busybox|routeros/.test(banners)) return ["Embedded Linux", "service banner"];
   if (v.startsWith("dhcpcd") || v.startsWith("udhcp")) return ["Linux", "DHCP"];
   if ((d.dhcp_params || "").startsWith("1,121,3,6,15,") && d.dhcp_params.includes("252")) return ["Apple (macOS or iOS)", "DHCP fingerprint"];
   if (d.ttl > 64 && d.ttl <= 128) return ["Windows", "ping TTL"];
@@ -716,6 +727,7 @@ function renderTraffic() {
   $("#host-table tbody").innerHTML = hosts.slice(0, 60).map((h) => {
     const name = h.name || lanNames.get(h.ip);
     const ports = [...h.ports].slice(0, 4).map((p) => PORT_LABEL[p] || p).join(", ");
+    const blockTarget = !h.lan && !h.flagged ? (h.name || h.ip) : null;
     return `<tr>
       <td><div class="truncate" title="${esc(name || h.ip)}">${h.flagged ? '<span class="chip bad">Blocklisted</span> ' : ""}${esc(name || h.ip)}</div>
         <div class="muted small">${name ? esc(h.ip) + " · " : ""}${h.lan ? "Local network" : "Internet"}</div></td>
@@ -723,6 +735,7 @@ function renderTraffic() {
       <td class="num">${fmtBytes(h.bytes_in)}</td>
       <td class="num">${fmtBytes(h.bytes_out)}</td>
       <td><div class="share" title="${fmtBytes(h.bytes_in + h.bytes_out)}"><i style="width:${(((h.bytes_in + h.bytes_out) / max) * 100).toFixed(1)}%"></i></div></td>
+      <td class="num">${blockTarget ? `<button class="btn small row-act" data-block="${esc(blockTarget)}" title="Add to your blocklist">Block</button>` : ""}</td>
     </tr>`;
   }).join("");
   const he = $("#host-empty");
@@ -779,16 +792,18 @@ function renderDns() {
       ? top.map(([k, c]) => `<div class="dns-row top ${c.blocked ? "flag" : ""}">
           <span class="time num">${c.n}</span>
           <div><div class="name">${c.blocked ? sevBadge("high") + " " : ""}${esc(k)}</div>
-          <div class="share"><i style="width:${((c.n / max) * 100).toFixed(1)}%"></i></div></div></div>`).join("")
+          <div class="share"><i style="width:${((c.n / max) * 100).toFixed(1)}%"></i></div></div>
+          <div>${c.blocked ? "" : `<button class="btn small row-act" data-block="${esc(k)}" title="Add to your blocklist">Block</button>`}</div></div>`).join("")
       : `<div class="empty">${live ? "No lookups yet." : "DNS lookups appear here once capture is running."}</div>`;
     return;
   }
   $("#dns-list").innerHTML = rows.length
     ? rows.slice(0, 250).map((d) => `<div class="dns-row ${d.blocked ? "flag" : ""}">
         <span class="time">${clock(d.ts)}</span>
-        <div><div class="name">${d.blocked ? sevBadge("high") + " " : ""}${esc(d.name)} <span class="muted">${esc(d.qtype)}</span></div>
-        <div class="ans">${esc(d.answers.slice(0, 3).join(", ") || "no answer")}</div></div></div>`).join("")
-    : `<div class="empty">${live ? "No lookups yet. (Browsers using DNS-over-HTTPS won't appear here.)" : "DNS lookups appear here once capture is running."}</div>`;
+        <div><div class="name">${d.blocked ? sevBadge("high") + " " : ""}${esc(d.name)} ${d.qtype === "SNI" ? '<span class="chip sni" data-tip="Learned from TLS SNI (even when DNS is encrypted)">SNI</span>' : `<span class="muted">${esc(d.qtype)}</span>`}</div>
+        <div class="ans">${esc(d.answers.slice(0, 3).join(", ") || "no answer")}</div></div>
+        <div>${d.blocked ? "" : `<button class="btn small row-act" data-block="${esc(d.name)}" title="Add to your blocklist">Block</button>`}</div></div>`).join("")
+    : `<div class="empty">${live ? "No lookups yet. (HTTPS destinations learned via TLS SNI also appear here.)" : "DNS lookups appear here once capture is running."}</div>`;
 }
 
 async function refreshConnections() {
@@ -812,14 +827,18 @@ function renderConnections() {
     .filter((c) => !q || [c.process, c.remote_ip, c.remote_name, c.local_ip, String(c.local_port), String(c.remote_port)].some((v) => (v || "").toLowerCase().includes(q)))
     .sort((a, b) => (b.flagged - a.flagged) || (a.process || "~").localeCompare(b.process || "~"));
   $("#conn-count").textContent = `${list.length} shown`;
-  $("#conn-table tbody").innerHTML = list.slice(0, 500).map((c) => `<tr>
+  $("#conn-table tbody").innerHTML = list.slice(0, 500).map((c) => {
+    const blockTarget = c.scope === "internet" && !c.flagged ? (c.remote_name || c.remote_ip) : null;
+    return `<tr>
     <td>${c.flagged ? '<span class="chip bad">Blocklisted</span> ' : ""}<b>${esc(c.process || "unknown")}</b> <span class="muted small">${c.pid ?? ""}</span></td>
     <td>${c.proto}</td>
     <td class="mono">${esc(c.local_ip)}:${c.local_port}</td>
     <td>${!c.remote_ip ? '<span class="muted">—</span>' : c.remote_name
       ? `<div class="truncate">${esc(c.remote_name)}</div><div class="muted small mono">${esc(c.remote_ip)}:${c.remote_port}</div>`
       : `<span class="mono">${esc(c.remote_ip)}:${c.remote_port}</span>`}</td>
-    <td>${esc(c.state)}</td></tr>`).join("");
+    <td>${esc(c.state)}</td>
+    <td class="num">${blockTarget ? `<button class="btn small row-act" data-block="${esc(blockTarget)}" title="Add to your blocklist">Block</button>` : ""}</td></tr>`;
+  }).join("");
   const empty = $("#conn-empty");
   empty.hidden = list.length > 0;
   empty.textContent = state.connError || (state.conns.length ? "No connections match." : "Loading…");
@@ -865,7 +884,12 @@ async function copyText(text) {
 
 function renderAlerts() {
   const expert = state.settings?.expert_mode === true;
-  const list = [...state.alerts].reverse().filter((a) => state.alertFilter === "all" || !a.acknowledged);
+  const q = ($("#alert-search")?.value || "").trim().toLowerCase();
+  const list = [...state.alerts]
+    .reverse()
+    .filter((a) => state.alertFilter === "all" || !a.acknowledged)
+    .filter((a) => state.alertSev === "all" || a.severity === state.alertSev)
+    .filter((a) => !q || [a.title, a.detail, a.kind, a.key].some((v) => (v || "").toLowerCase().includes(q)));
   $("#alert-list").innerHTML = list.length
     ? list.map((a) => `<div class="alert-card ${a.severity} ${a.acknowledged ? "acked" : ""}">
         ${sevBadge(a.severity)}
@@ -873,7 +897,32 @@ function renderAlerts() {
           <div class="meta" title="${esc(fullTime(a.ts))}">${ago(a.ts)}${a.count > 1 ? ` · seen ${a.count} times, last ${ago(a.last_ts)}` : ""}</div>${expert ? expertHtml(a) : ""}</div>
         ${a.acknowledged ? '<span class="muted small">Acknowledged</span>' : `<button class="btn small" data-ack="${a.id}">Acknowledge</button>`}
       </div>`).join("")
-    : `<div class="panel empty">${state.alertFilter === "open" ? "No open alerts." : "No alerts recorded."}</div>`;
+    : `<div class="panel empty">${q || state.alertSev !== "all" ? "No alerts match this filter." : state.alertFilter === "open" ? "No open alerts." : "No alerts recorded."}</div>`;
+}
+
+async function exportIncidentReport() {
+  const report = await call("get_incident_report");
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "-");
+  const path = await call("save_export", {
+    name: `NetWatch-incident-${stamp}.json`,
+    content: JSON.stringify(report, null, 2) + "\n",
+  });
+  toast({
+    severity: "info",
+    title: "Incident report exported",
+    detail: `Saved ${report.open_alert_count} open alerts and ${report.risky_devices.length} flagged devices to ${path}. Click to reveal.`,
+    onClick: () => invoke("reveal_file", { path }),
+  });
+}
+
+async function blockEntry(entry) {
+  const added = await call("add_custom_blocklist_entry", { entry });
+  toast({
+    severity: "info",
+    title: added ? `Added ${entry} to your blocklist` : `${entry} is already blocklisted`,
+    detail: added ? "Future lookups or connections matching this entry will raise a High alert." : "Edit your blocklist in Settings to manage entries.",
+  });
+  if (state.view === "settings") loadCustomList();
 }
 
 function renderSettings() {
@@ -1028,12 +1077,19 @@ function renderDrawer() {
   const os = osGuess(d);
   $("#drawer-title").textContent = deviceName(d);
   const ports = d.open_ports;
+  const banners = d.port_banners || {};
+  const bannerEntries = Object.entries(banners).sort((a, b) => Number(a[0]) - Number(b[0]));
+  const webPort = (ports || []).find((p) => [443, 8443, 80, 8080, 8123, 5000, 8008].includes(p));
+  const webUrl = webPort && onNetwork(d, currentNetwork())
+    ? `${[443, 8443].includes(webPort) ? "https" : "http"}://${d.ip}${[80, 443].includes(webPort) ? "" : `:${webPort}`}/`
+    : null;
   const portHtml = checking
-    ? '<span class="muted">Checking common ports…</span>'
+    ? '<span class="muted">Checking common ports and banners…</span>'
     : ports == null
       ? '<span class="muted">Not checked yet.</span>'
       : ports.length
-        ? `<div class="port-list">${ports.map((p) => `<span class="chip ${RISKY_PORTS.has(p) ? "bad" : ""}">${p} · ${PORT_LABEL[p] || "open"}</span>`).join("")}</div>`
+        ? `<div class="port-list">${ports.map((p) => `<span class="chip ${RISKY_PORTS.has(p) ? "bad" : ""}"${banners[p] ? ` data-tip="${esc(banners[p])}"` : ""}>${p} · ${PORT_LABEL[p] || "open"}</span>`).join("")}</div>` +
+          (bannerEntries.length ? `<ul class="banner-list">${bannerEntries.map(([p, b]) => `<li><b class="mono">${esc(p)}</b>${esc(b)}</li>`).join("")}</ul>` : "")
         : '<span class="muted">None of the common ports are open.</span>';
   const fact = (k, v) => (v ? `<dt>${k}</dt><dd>${v}</dd>` : "");
   // Don't rebuild while the user is typing in one of the drawer's fields.
@@ -1059,8 +1115,8 @@ function renderDrawer() {
       <dl class="facts">
         ${fact("Type", esc(kindLabel))}
         ${fact("Operating system", os ? `${esc(os[0])} <span class="muted small">· from ${esc(os[1])}</span>` : "")}
-        ${fact("IP address", `<span class="mono">${esc(d.ip)}</span>`)}
-        ${fact("MAC address", `<span class="mono">${esc(d.mac)}</span>${isRandomMac(d.mac) ? '<div class="muted small">Randomized for privacy, so the vendor is hidden</div>' : ""}`)}
+        ${fact("IP address", `<span class="mono">${esc(d.ip)}</span> <button class="btn link small" data-copy="${esc(d.ip)}" title="Copy IP address">Copy</button>`)}
+        ${fact("MAC address", `<span class="mono">${esc(d.mac)}</span> <button class="btn link small" data-copy="${esc(d.mac)}" title="Copy MAC address">Copy</button>${isRandomMac(d.mac) ? '<div class="muted small">Randomized for privacy, so the vendor is hidden</div>' : ""}`)}
         ${fact("Also seen as", (d.aliases || []).length ? `${d.aliases.map((m) => `<span class="mono">${esc(m)}</span>`).join("<br>")}<div class="muted small">Earlier private addresses of this device, merged into one entry</div>` : "")}
         ${fact("Network", d.is_self ? "" : d.network ? `${esc(networkName(d.network))}${d.network === currentNetwork() ? ' <span class="muted small">· connected now</span>' : ""}` : "")}
         ${fact("Vendor", esc(d.vendor))}
@@ -1092,9 +1148,10 @@ function renderDrawer() {
       ${portHtml}
       <div class="row" style="margin-top:10px">
         <button class="btn" data-action="check-ports" ${checking ? "disabled" : ""}>${ports == null ? "Check common ports" : "Check again"}</button>
+        ${webUrl ? `<button class="btn" data-url="${esc(webUrl)}">Open web UI</button>` : ""}
         ${d.ports_checked_at && !checking ? `<span class="muted small">Checked ${ago(d.ports_checked_at)}</span>` : ""}
       </div>
-      <p class="muted small" style="margin-top:8px">Tries to connect to 26 well-known service ports on this device only.</p>
+      <p class="muted small" style="margin-top:8px">Tries to connect to 31 well-known service ports on this device and reads short identification banners.</p>
     </div>
     <div>
       <h3>Notes and tags</h3>
@@ -1249,11 +1306,23 @@ document.addEventListener("click", async (e) => {
     }
     return;
   }
+  if (t.dataset.block) {
+    e.stopPropagation();
+    return blockEntry(t.dataset.block);
+  }
+  if (t.dataset.copy) {
+    e.stopPropagation();
+    copyText(t.dataset.copy).then(
+      () => toast({ severity: "info", title: "Copied", detail: t.dataset.copy }),
+      () => toast({ severity: "info", title: "Couldn't copy", detail: t.dataset.copy }),
+    );
+    return;
+  }
   if (t.dataset.url) return call("open_url", { url: t.dataset.url });
   const seg = t.closest(".seg");
   if (seg && t.dataset.f) {
     if (seg.id === "heat-metric") { heat.metric = t.dataset.f; segOn(seg, t); return render(); }
-    const key = { "dev-filter": "devFilter", "conn-filter": "connFilter", "alert-filter": "alertFilter", "dns-mode": "dnsMode", "usage-view": "usageView", "ble-filter": "bleFilter", "tl-filter": "tlFilter", "hist-range": "histRange" }[seg.id];
+    const key = { "dev-filter": "devFilter", "conn-filter": "connFilter", "alert-filter": "alertFilter", "alert-sev": "alertSev", "dns-mode": "dnsMode", "usage-view": "usageView", "ble-filter": "bleFilter", "tl-filter": "tlFilter", "hist-range": "histRange" }[seg.id];
     if (key) { state[key] = t.dataset.f; segOn(seg, t); return render(); }
   }
   if (t.dataset.mac && !t.matches("button")) return openDrawer(t.dataset.mac);
@@ -1290,6 +1359,8 @@ document.addEventListener("click", async (e) => {
       return call("refresh_public");
     case "export-devices":
       return exportDevices();
+    case "export-incident":
+      return exportIncidentReport();
     case "ble-on":
       state.bt = { ...(state.bt || {}), scan_state: "starting" };
       render();
@@ -1410,7 +1481,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && e.target.closest?.("#data-plan")) savePrefs();
   if (e.key === "Enter" && e.target.id === "trace-target") $('[data-action="trace"]').click();
 });
-["#dev-search", "#conn-search", "#dns-search"].forEach((s) => $(s).addEventListener("input", render));
+["#dev-search", "#conn-search", "#dns-search", "#alert-search"].forEach((s) => $(s)?.addEventListener("input", render));
 $("#dev-net").addEventListener("change", (e) => { state.devNet = e.target.value; render(); });
 $("#palette-input").addEventListener("input", () => { if (state.palette) { state.palette.sel = 0; renderPalette(); } });
 window.addEventListener("resize", render);
@@ -1487,6 +1558,7 @@ async function init() {
   listen("dns", (e) => {
     state.dns.push(...e.payload);
     if (state.dns.length > 500) state.dns.splice(0, state.dns.length - 500);
+    renderIf("traffic");
   });
   listen("scan", (e) => {
     state.scanning = e.payload.running;
@@ -1513,7 +1585,7 @@ async function init() {
     state.outage = e.payload.outage;
     render();
   });
-  listen("outages", (e) => { state.outages = e.payload; renderIf("network"); });
+  listen("outages", (e) => { state.outages = e.payload; renderIf("network", "overview", "history", "timeline"); });
   listen("wifi", (e) => { state.wifi = e.payload.wifi; state.firewall = e.payload.firewall; renderIf("network", "bluetooth", "wifi"); });
   listen("location", (e) => { state.location = e.payload; render(); });
   listen("public", (e) => { [state.publicInfo, state.publicError] = e.payload; renderIf("network"); });
@@ -1524,7 +1596,7 @@ async function init() {
     renderIf("network", "overview");
   });
   listen("watch", (e) => { state.watch = e.payload; renderIf("network"); });
-  listen("audit", (e) => { state.audit = e.payload; renderIf("audit", "security"); });
+  listen("audit", (e) => { state.audit = e.payload; renderIf("audit", "security", "overview"); });
   listen("ble_locate", (e) => {
     if (state.locate?.id === e.payload.id) {
       locateSample(e.payload.rssi, e.payload.ts);

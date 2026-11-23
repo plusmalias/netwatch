@@ -48,6 +48,17 @@ pub const KINDS: &[KindInfo] = &[
         ],
     },
     KindInfo {
+        kind: "arp_flood",
+        techniques: &[T_ARP],
+        tactic: AITM,
+        why: "One device rapidly sent ARP replies claiming many different IP addresses at once. Subnet-wide ARP poisoning tools do this to intercept traffic across the entire LAN.",
+        steps: &[
+            "Find the MAC address from the alert in Devices and check whether it is a security tool you are intentionally running.",
+            "If you don't recognise it, disconnect or block that MAC on your router immediately and change your Wi-Fi password.",
+            "Use a VPN or avoid sensitive logins until the flooding device is off the network.",
+        ],
+    },
+    KindInfo {
         kind: "ip_conflict",
         techniques: &[],
         tactic: "",
@@ -135,6 +146,39 @@ pub const KINDS: &[KindInfo] = &[
             "Find the app or page that made the request: Connections shows the app on this computer, and the DNS log shows which device asked.",
             "Scan that device for malware and check its browser extensions.",
             "If you added the entry to your own blocklist as a test, acknowledge the alert.",
+        ],
+    },
+    KindInfo {
+        kind: "dns_tunnel",
+        techniques: &[("T1071.004", "Application Layer Protocol: DNS")],
+        tactic: C2,
+        why: "A device sent many distinct long or random-looking subdomains under one domain. Malware and tunneling tools encode command-and-control or stolen data inside DNS labels to slip past firewalls.",
+        steps: &[
+            "Inspect the DNS lookups on the Traffic page and filter by the domain named in the alert.",
+            "Identify which device or app is making those lookups; check Connections if it is this computer.",
+            "If it isn't a known security/VPN/telemetry service, disconnect that device and scan it for malware.",
+        ],
+    },
+    KindInfo {
+        kind: "dga_burst",
+        techniques: &[("T1568.002", "Dynamic Resolution: Domain Generation Algorithms")],
+        tactic: C2,
+        why: "A device rapidly looked up many random-looking domains that do not exist. Malware uses Domain Generation Algorithms (DGA) to cycle through generated domain names until it finds a live operator server.",
+        steps: &[
+            "Find the client IP from the alert in Devices (or check Connections if it is this computer).",
+            "Disconnect the affected device from your network if you cannot explain the burst.",
+            "Run a full malware scan and review Startup items on the Audit page.",
+        ],
+    },
+    KindInfo {
+        kind: "dns_rebinding",
+        techniques: &[("T1557", "Adversary-in-the-Middle")],
+        tactic: AITM,
+        why: "A public internet domain resolved to your router or switched from a public address to a private LAN address. Attackers use DNS rebinding so a malicious web page can bypass browser protections and talk to local routers or IoT devices.",
+        steps: &[
+            "Close unfamiliar browser tabs and check the DNS log for the domain named in the alert.",
+            "Verify your router's admin password is strong and remote management is off.",
+            "Consider enabling DNS rebinding protection on your router or using a DNS resolver that blocks private-IP replies for public domains.",
         ],
     },
     KindInfo {
@@ -360,6 +404,24 @@ pub const KINDS: &[KindInfo] = &[
         why: "The morning summary of yesterday on your network.",
         steps: &["Nothing to do; switch it off in Settings if you don't want it."],
     },
+    KindInfo {
+        kind: "host_down",
+        techniques: &[],
+        tactic: "",
+        why: "A website or server you added to Watched hosts stopped answering three consecutive checks.",
+        steps: &[
+            "Check whether your own internet connection is healthy on the Connection page.",
+            "If other sites work normally, the problem is likely on that host or service.",
+            "Remove the host from Watched hosts if you no longer want outage alerts for it.",
+        ],
+    },
+    KindInfo {
+        kind: "host_up",
+        techniques: &[],
+        tactic: "",
+        why: "A watched host that was unreachable is answering again.",
+        steps: &["Informational recovery notice; acknowledge it or review the outage duration in Activity."],
+    },
     // ---- Bluetooth
     KindInfo {
         kind: "bt_battery",
@@ -454,8 +516,9 @@ mod tests {
     /// Every alert kind NetWatch can raise, as of this writing. The scan below
     /// finds new ones; this list catches an entry being dropped by accident.
     const KNOWN_KINDS: &[&str] = &[
-        "arp_spoof", "beacon", "ble_spam", "ble_tracker", "bt_battery", "c2_connection", "c2_traffic", "cert",
-        "daily_summary", "data_cap", "data_forecast", "dhcp_change", "dns_change", "dns_hijack", "evil_twin", "exposed_service",
+        "arp_flood", "arp_spoof", "beacon", "ble_spam", "ble_tracker", "bt_battery", "c2_connection", "c2_traffic", "cert",
+        "daily_summary", "data_cap", "data_forecast", "dga_burst", "dhcp_change", "dns_change", "dns_hijack",
+        "dns_rebinding", "dns_tunnel", "evil_twin", "exposed_service", "host_down", "host_up",
         "identity_change", "ip_conflict", "launch_item", "link_downgrade", "malicious_domain", "new_device", "new_listener", "outage",
         "port_audit", "port_audit_summary", "port_forward", "port_scan", "presence", "rogue_dhcp", "suspicious_port",
         "tls_intercept", "tracker_following", "wifi_security",
@@ -536,9 +599,13 @@ mod tests {
     fn maps_the_documented_techniques() {
         let ids = |k: &str| lookup(k).unwrap().techniques.iter().map(|t| t.0).collect::<Vec<_>>();
         assert_eq!(ids("arp_spoof"), ["T1557.002"]);
+        assert_eq!(ids("arp_flood"), ["T1557.002"]);
         assert_eq!(ids("rogue_dhcp"), ["T1557.003"]);
         assert_eq!(ids("evil_twin"), ["T1557.004"]);
         assert_eq!(ids("tls_intercept"), ["T1557"]);
+        assert_eq!(ids("dns_rebinding"), ["T1557"]);
+        assert_eq!(ids("dns_tunnel"), ["T1071.004"]);
+        assert_eq!(ids("dga_burst"), ["T1568.002"]);
         assert_eq!(ids("port_scan"), ["T1046"]);
         assert_eq!(ids("launch_item"), ["T1543.001", "T1543.004"]);
         assert_eq!(ids("suspicious_port"), ["T1571"]);

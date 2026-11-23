@@ -273,9 +273,55 @@ pub fn dns_leak_test() -> Result<LeakResult, String> {
         .map_err(|e| e.to_string())?;
     let mut r = parse_leak(&body)?;
     r.vpn = vpn_status();
-    let isp = r.public.as_ref().and_then(|p| p.org.clone());
-    r.leak = r.vpn.active && r.resolvers.iter().any(|x| x.org.is_some() && x.org == isp);
+    r.leak = is_dns_leak(&r);
     Ok(r)
+}
+
+/// Well-known public DNS operators that users or VPNs legitimately route lookups through.
+fn is_known_public_resolver(e: &LeakEntry) -> bool {
+    if e.ip.parse::<IpAddr>().ok().and_then(|ip| resolver_name(&ip)).is_some() {
+        return true;
+    }
+    let Some(org) = e.org.as_deref() else { return false };
+    let l = org.to_ascii_lowercase();
+    [
+        "cloudflare",
+        "google",
+        "quad9",
+        "opendns",
+        "cisco umbrella",
+        "adguard",
+        "nextdns",
+        "control d",
+    ]
+    .iter()
+    .any(|k| l.contains(k))
+}
+
+/// On a VPN, `r.public` is the VPN exit node's IP/operator. A leak occurs when
+/// a DNS resolver belongs to a DIFFERENT operator (typically the local ISP)
+/// rather than the VPN provider or a known public resolver.
+pub fn is_dns_leak(r: &LeakResult) -> bool {
+    if !r.vpn.active {
+        return false;
+    }
+    let vpn_org = r
+        .public
+        .as_ref()
+        .and_then(|p| p.org.as_deref())
+        .map(|s| s.trim().to_ascii_lowercase());
+    let Some(vpn_org) = vpn_org else {
+        return false;
+    };
+    r.resolvers.iter().any(|x| {
+        if is_known_public_resolver(x) {
+            return false;
+        }
+        x.org
+            .as_deref()
+            .map(|o| o.trim().to_ascii_lowercase() != vpn_org)
+            .unwrap_or(false)
+    })
 }
 
 fn parse_leak(body: &str) -> Result<LeakResult, String> {
@@ -352,6 +398,53 @@ mod tests {
         assert_eq!(r.public.unwrap().org.as_deref(), Some("Microplex Pty Ltd"));
         assert_eq!(r.resolvers.len(), 1);
         assert_eq!(r.resolvers[0].org.as_deref(), Some("CloudFlare Inc"));
+    }
+
+    #[test]
+    fn classifies_vpn_dns_leaks_correctly() {
+        let entry = |ip: &str, org: &str, country: &str| LeakEntry {
+            ip: ip.into(),
+            org: Some(org.into()),
+            country: Some(country.into()),
+        };
+        let vpn_on = VpnStatus { active: true, interface: Some("utun4".into()), tunnels: vec!["utun4".into()] };
+        let vpn_off = VpnStatus::default();
+
+        // VPN active and DNS goes through the VPN provider's own resolver: NO leak.
+        let same_as_vpn = LeakResult {
+            public: Some(entry("185.213.154.1", "Mullvad VPN", "Sweden")),
+            resolvers: vec![entry("185.213.154.2", "Mullvad VPN", "Sweden")],
+            vpn: vpn_on.clone(),
+            leak: false,
+        };
+        assert!(!is_dns_leak(&same_as_vpn), "VPN's own DNS resolver must not be flagged as a leak");
+
+        // VPN active and DNS goes through a local ISP instead of the VPN: LEAK.
+        let isp_leak = LeakResult {
+            public: Some(entry("185.213.154.1", "Mullvad VPN", "Sweden")),
+            resolvers: vec![entry("203.2.75.132", "Telstra Internet", "Australia")],
+            vpn: vpn_on.clone(),
+            leak: false,
+        };
+        assert!(is_dns_leak(&isp_leak), "local ISP resolver while on VPN is a DNS leak");
+
+        // VPN active and DNS uses a well-known public resolver (Cloudflare): NO leak.
+        let public_dns = LeakResult {
+            public: Some(entry("185.213.154.1", "Mullvad VPN", "Sweden")),
+            resolvers: vec![entry("1.1.1.1", "Cloudflare, Inc.", "Sweden")],
+            vpn: vpn_on,
+            leak: false,
+        };
+        assert!(!is_dns_leak(&public_dns), "well-known public resolver is not an ISP leak");
+
+        // VPN off: never flagged as a VPN leak.
+        let off = LeakResult {
+            public: Some(entry("203.2.75.10", "Telstra Internet", "Australia")),
+            resolvers: vec![entry("203.2.75.132", "Telstra Internet", "Australia")],
+            vpn: vpn_off,
+            leak: false,
+        };
+        assert!(!is_dns_leak(&off));
     }
 
     #[test]

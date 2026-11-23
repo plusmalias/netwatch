@@ -205,10 +205,12 @@ function renderLeak() {
   let verdict = "";
   if (r) {
     const orgs = [...new Set(r.resolvers.map((x) => x.org).filter(Boolean))];
+    const vpnOrg = (r.public?.org || "").trim().toLowerCase();
+    const leaked = orgs.filter((o) => o.trim().toLowerCase() !== vpnOrg);
     verdict = vpn?.active
       ? r.leak
-        ? `<div class="banner bad-banner"><div class="grow"><b>DNS is leaking.</b> You're on a VPN, but your lookups are answered by your own provider (${esc(r.public?.org || "")}), so it can see the sites you visit. Turn on your VPN's DNS protection.</div></div>`
-        : `<div class="banner flat"><div class="grow"><span class="dot good"></span><b>No leak found.</b> Your lookups go through ${esc(orgs.join(", ") || "the VPN")}, not your own provider.</div></div>`
+        ? `<div class="banner bad-banner"><div class="grow"><b>DNS is leaking.</b> You're on a VPN (${esc(r.public?.org || "tunnel")}), but your lookups are answered outside the VPN by ${esc(leaked.join(", ") || orgs.join(", ") || "another provider")}, so it can see the sites you visit. Turn on your VPN's DNS protection.</div></div>`
+        : `<div class="banner flat"><div class="grow"><span class="dot good"></span><b>No leak found.</b> Your lookups go through ${esc(orgs.join(", ") || "the VPN")}, not your local ISP.</div></div>`
       : `<div class="banner flat"><div class="grow"><span class="dot off"></span>You're not on a VPN, so this is just who answers your lookups: <b>${esc(orgs.join(", ") || "unknown")}</b>.</div></div>`;
   }
   $("#leak-box").innerHTML = `

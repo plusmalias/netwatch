@@ -31,26 +31,46 @@ const onNetwork = (d, net) => d.is_self || d.network === net || (d.network == nu
 
 // ------------------------------------------------------------------ device risk
 
+const SENSITIVE_PORTS = new Set([22, 139, 445, 554, 1883, 6379, 37777]);
+
+function alertMatchesDevice(a, d) {
+  const k = a.key || "";
+  const hit = (id) => !!id && (k === id || k.startsWith(`${id}:`) || k.endsWith(`->${id}`));
+  return hit(d.mac) || hit(d.ip) || (d.aliases || []).some(hit);
+}
+
 // How much attention a device deserves, from what NetWatch has seen of it.
-// Returns { score 0–100, level none|low|medium|high, reasons: [text] }.
+// Mirrors src-tauri/src/risk.rs. Returns { score 0–100, level none|low|medium|high, reasons: [text] }.
 function deviceRisk(d) {
   if (d.is_self) return { score: 0, level: "none", reasons: [] };
   let score = 0;
   const reasons = [];
   const add = (pts, why) => { score += pts; reasons.push(why); };
+  const banners = d.port_banners || {};
   for (const p of d.open_ports || []) {
-    if (RISKY_PORTS.has(p)) add(35, `${PORT_LABEL[p]} (port ${p}) is open; it's often unencrypted or a common target`);
-    else if ([22, 139, 445, 1883].includes(p)) add(8, `${PORT_LABEL[p]} (port ${p}) accepts connections`);
+    const label = PORT_LABEL[p] ? `${PORT_LABEL[p]} (port ${p})` : `Port ${p}`;
+    const banner = banners[p] ? ` — ${banners[p]}` : "";
+    if (RISKY_PORTS.has(p)) add(35, `${label}${banner} is open; it's often unencrypted or a common target`);
+    else if (SENSITIVE_PORTS.has(p)) add(10, `${label}${banner} accepts connections`);
   }
   const forwards = (state.router?.mappings || []).filter((m) => m.internal_client === d.ip && onNetwork(d, currentNetwork()));
-  if (forwards.length) add(30, `Reachable from the internet through ${forwards.length} port forward${forwards.length > 1 ? "s" : ""} (${forwards.map((m) => `${m.protocol} ${m.external_port}`).join(", ")})`);
-  for (const a of openAlerts().filter((a) => a.key === d.mac || a.key === d.ip || (d.aliases || []).includes(a.key))) {
+  if (forwards.length) {
+    add(30, `Reachable from the internet through ${forwards.length} port forward${forwards.length > 1 ? "s" : ""} (${forwards.map((m) => `${m.protocol} ${m.external_port}`).join(", ")})`);
+    if (forwards.some((m) => RISKY_PORTS.has(m.internal_port) || RISKY_PORTS.has(m.external_port) || SENSITIVE_PORTS.has(m.internal_port) || SENSITIVE_PORTS.has(m.external_port))) {
+      add(20, "A port forward exposes a sensitive or remote-access service directly to the internet");
+    }
+  }
+  for (const a of openAlerts().filter((a) => alertMatchesDevice(a, d))) {
     if (a.severity === "high") add(30, a.title);
+    else if (a.severity === "medium" && a.kind === "identity_change") add(25, a.title);
     else if (a.severity === "medium") add(15, a.title);
     else add(5, a.title);
   }
   if (!d.trusted && !d.is_gateway) add(15, "Not marked as trusted yet");
-  if (!d.label && !d.hostname && !d.friendly_name && !d.vendor && !d.model) add(10, "NetWatch couldn't identify it");
+  if (!d.label && !d.hostname && !d.friendly_name && !d.vendor && !d.model && !Object.keys(banners).length) {
+    if (!d.trusted && isRandomMac(d.mac)) add(15, "Unidentified device using a private MAC address");
+    else add(10, "NetWatch couldn't identify it");
+  }
   score = Math.min(100, score);
   const level = score >= 50 ? "high" : score >= 20 ? "medium" : score > 0 ? "low" : "none";
   return { score, level, reasons };

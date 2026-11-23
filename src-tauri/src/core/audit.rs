@@ -161,7 +161,7 @@ impl Core {
         self.emit_audit();
         let targets = self.port_audit_targets();
         // At most two devices at a time; each check already opens its ports in parallel.
-        let results = rules::run_pool(&targets, PORT_AUDIT_WORKERS, |t| discovery::check_ports(t.ip));
+        let results = rules::run_pool(&targets, PORT_AUDIT_WORKERS, |t| discovery::check_ports_with_banners(t.ip));
         // If the network went away mid-audit every device looks closed, and
         // recording that would turn the next audit into a false alarm.
         if crate::net::default_net().is_err() {
@@ -172,12 +172,12 @@ impl Core {
         let now = now_ms();
         let scans: Vec<DeviceScan> = targets
             .iter()
-            .zip(results)
-            .map(|(t, open)| DeviceScan {
+            .zip(&results)
+            .map(|(t, probe)| DeviceScan {
                 mac: t.mac.clone(),
                 name: t.name.clone(),
                 ip: t.ip.to_string(),
-                open,
+                open: probe.open.clone(),
             })
             .collect();
         let outcome = {
@@ -190,9 +190,10 @@ impl Core {
         // Keep the device drawers in step with what the audit found.
         {
             let mut store = self.store.lock().unwrap();
-            for s in &scans {
+            for (s, probe) in scans.iter().zip(results) {
                 if let Some(d) = store.devices.get_mut(&s.mac) {
                     d.open_ports = Some(s.open.clone());
+                    d.port_banners = probe.banners;
                     d.ports_checked_at = Some(now);
                 }
             }

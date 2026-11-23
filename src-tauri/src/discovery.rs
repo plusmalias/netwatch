@@ -6,7 +6,8 @@ use crate::util::{is_unicast_mac, norm_mac, quiet_command};
 use simple_dns::rdata::RData;
 use simple_dns::{Name, Packet, PacketFlag, Question, CLASS, TYPE};
 use socket2::{Domain, Protocol, Socket, Type};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream, UdpSocket};
 use std::sync::mpsc;
 use std::thread;
@@ -498,27 +499,172 @@ pub fn xml_tag(xml: &str, tag: &str) -> Option<String> {
 // ---------------------------------------------------------------- ports
 
 pub const COMMON_PORTS: &[u16] = &[
-    21, 22, 23, 25, 53, 80, 139, 443, 445, 548, 554, 631, 1883, 3389, 5000, 5900, 7000, 8008,
-    8009, 8080, 8443, 8883, 9100, 32400, 49152, 62078,
+    21, 22, 23, 25, 53, 80, 139, 443, 445, 548, 554, 631, 1883, 2323, 3389, 5000, 5555, 5900,
+    6379, 7000, 8008, 8009, 8080, 8123, 8443, 8883, 9100, 32400, 37777, 49152, 62078,
 ];
 
-/// TCP connect check of a short list of well-known ports on one LAN device.
-pub fn check_ports(ip: Ipv4Addr) -> Vec<u16> {
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PortProbeResult {
+    pub open: Vec<u16>,
+    pub banners: BTreeMap<u16, String>,
+}
+
+/// TCP connect check plus safe, read-only banner identification (SSH/FTP/SMTP
+/// greetings, HTTP Server/title, RTSP Server) on open ports.
+pub fn check_ports_with_banners(ip: Ipv4Addr) -> PortProbeResult {
     let handles: Vec<_> = COMMON_PORTS
         .iter()
         .map(|&port| {
             thread::spawn(move || {
                 let addr = SocketAddr::from((ip, port));
-                TcpStream::connect_timeout(&addr, Duration::from_millis(800))
-                    .is_ok()
-                    .then_some(port)
+                let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(800)).ok()?;
+                let banner = grab_banner(&mut stream, port);
+                Some((port, banner))
             })
         })
         .collect();
-    handles
-        .into_iter()
-        .filter_map(|h| h.join().ok().flatten())
-        .collect()
+    let mut out = PortProbeResult::default();
+    for h in handles {
+        if let Ok(Some((port, banner))) = h.join() {
+            out.open.push(port);
+            if let Some(b) = banner {
+                out.banners.insert(port, b);
+            }
+        }
+    }
+    out.open.sort_unstable();
+    out
+}
+
+/// Reads a short, single-line identification banner from an already-connected
+/// LAN socket. Never sends credentials or mutating requests.
+pub fn grab_banner(stream: &mut TcpStream, port: u16) -> Option<String> {
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+    match port {
+        21 | 22 | 23 | 25 | 2323 => {
+            let mut buf = [0u8; 256];
+            let n = stream.read(&mut buf).ok()?;
+            if n == 0 {
+                return None;
+            }
+            clean_banner_line(&buf[..n])
+        }
+        80 | 5000 | 8008 | 8080 | 8123 => {
+            let req = b"GET / HTTP/1.0\r\nHost: localhost\r\nUser-Agent: NetWatch\r\nConnection: close\r\n\r\n";
+            stream.write_all(req).ok()?;
+            let mut buf = [0u8; 4096];
+            let mut total = 0;
+            while total < buf.len() {
+                match stream.read(&mut buf[total..]) {
+                    Ok(0) => break,
+                    Ok(n) => total += n,
+                    Err(_) => break,
+                }
+            }
+            if total == 0 {
+                return None;
+            }
+            parse_http_banner(&String::from_utf8_lossy(&buf[..total]))
+        }
+        554 => {
+            let _ = stream.write_all(b"OPTIONS * RTSP/1.0\r\nCSeq: 1\r\n\r\n");
+            let mut buf = [0u8; 512];
+            let n = stream.read(&mut buf).ok()?;
+            if n == 0 {
+                return None;
+            }
+            parse_rtsp_banner(&String::from_utf8_lossy(&buf[..n]))
+        }
+        _ => None,
+    }
+}
+
+/// Cleans a TCP greeting banner (skipping Telnet IAC negotiation bytes) to one
+/// printable line, capped at 96 chars.
+pub fn clean_banner_line(raw: &[u8]) -> Option<String> {
+    let mut bytes = Vec::with_capacity(raw.len());
+    let mut i = 0;
+    while i < raw.len() {
+        // Telnet IAC (0xff) + command + option (3 bytes) or 2-byte command.
+        if raw[i] == 0xff {
+            i += if i + 1 < raw.len() && matches!(raw[i + 1], 0xfb..=0xfe) { 3 } else { 2 };
+            continue;
+        }
+        if raw[i] == b'\r' || raw[i] == b'\n' {
+            if !bytes.is_empty() {
+                break;
+            }
+            i += 1;
+            continue;
+        }
+        if raw[i].is_ascii_graphic() || raw[i] == b' ' {
+            bytes.push(raw[i]);
+        }
+        i += 1;
+    }
+    let s = String::from_utf8_lossy(&bytes).trim().to_string();
+    let s: String = s.chars().take(96).collect();
+    (s.len() >= 3).then_some(s)
+}
+
+/// Extracts `<title>` and/or `Server:` header from an HTTP response.
+pub fn parse_http_banner(raw: &str) -> Option<String> {
+    let (headers, body) = raw
+        .split_once("\r\n\r\n")
+        .or_else(|| raw.split_once("\n\n"))
+        .unwrap_or((raw, ""));
+    let server = headers
+        .lines()
+        .find_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            k.trim().eq_ignore_ascii_case("server").then(|| v.trim())
+        })
+        .filter(|s| !s.is_empty());
+    let title = extract_html_title(body);
+    let combined = match (title.as_deref(), server) {
+        (Some(t), Some(s)) if !t.eq_ignore_ascii_case(s) => format!("{t} ({s})"),
+        (Some(t), _) => t.to_string(),
+        (None, Some(s)) => s.to_string(),
+        (None, None) => return None,
+    };
+    let clean: String = combined
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(96)
+        .collect();
+    (!clean.is_empty()).then_some(clean)
+}
+
+fn extract_html_title(html: &str) -> Option<String> {
+    let lower = html.to_ascii_lowercase();
+    let start_tag = lower.find("<title")?;
+    let after_open = start_tag + lower[start_tag..].find('>')? + 1;
+    let end_rel = lower[after_open..].find("</title>")?;
+    let title = html.get(after_open..after_open + end_rel)?;
+    let collapsed = title
+        .replace("&amp;", "&")
+        .replace("&ndash;", "-")
+        .replace("&mdash;", "-")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    (!collapsed.is_empty()).then_some(collapsed)
+}
+
+/// Extracts `Server:` header from an RTSP OPTIONS response.
+pub fn parse_rtsp_banner(raw: &str) -> Option<String> {
+    raw.lines().find_map(|l| {
+        let (k, v) = l.split_once(':')?;
+        if k.trim().eq_ignore_ascii_case("server") {
+            let s: String = v.trim().chars().take(96).collect();
+            (!s.is_empty()).then_some(s)
+        } else {
+            None
+        }
+    })
 }
 
 #[cfg(test)]
@@ -722,5 +868,46 @@ mod tests {
         assert_eq!(xml_tag(xml, "friendlyName").as_deref(), Some("NAS & Media"));
         assert_eq!(xml_tag(xml, "modelName").as_deref(), Some("DS220+"));
         assert_eq!(xml_tag(xml, "serialNumber"), None);
+    }
+
+    #[test]
+    fn parses_http_rtsp_and_telnet_banners() {
+        let http = "HTTP/1.1 200 OK\r\nServer: nginx/1.24.0\r\nContent-Type: text/html\r\n\r\n<html><head><title>TP-Link &amp; Router</title></head></html>";
+        assert_eq!(parse_http_banner(http).as_deref(), Some("TP-Link & Router (nginx/1.24.0)"));
+        assert_eq!(parse_http_banner("HTTP/1.0 401 Unauthorized\r\nServer: lighttpd/1.4\r\n\r\n").as_deref(), Some("lighttpd/1.4"));
+        assert_eq!(parse_http_banner("not http"), None);
+
+        let rtsp = "RTSP/1.0 200 OK\r\nCSeq: 1\r\nServer: Hikvision/1.0\r\nPublic: OPTIONS, DESCRIBE\r\n\r\n";
+        assert_eq!(parse_rtsp_banner(rtsp).as_deref(), Some("Hikvision/1.0"));
+
+        // Telnet IAC sequences stripped, SSH greeting preserved.
+        let telnet = [0xff, 0xfd, 0x18, 0xff, 0xfb, 0x01, b'B', b'u', b's', b'y', b'B', b'o', b'x', b'\r', b'\n'];
+        assert_eq!(clean_banner_line(&telnet).as_deref(), Some("BusyBox"));
+        assert_eq!(clean_banner_line(b"SSH-2.0-OpenSSH_9.6p1 Ubuntu-3\r\n").as_deref(), Some("SSH-2.0-OpenSSH_9.6p1 Ubuntu-3"));
+    }
+
+    #[test]
+    fn grabs_real_loopback_ssh_and_http_banners() {
+        let ssh_ln = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let ssh_port = ssh_ln.local_addr().unwrap().port();
+        thread::spawn(move || {
+            if let Ok((mut s, _)) = ssh_ln.accept() {
+                let _ = s.write_all(b"SSH-2.0-OpenSSH_9.6\r\n");
+            }
+        });
+        let mut s = TcpStream::connect(("127.0.0.1", ssh_port)).unwrap();
+        assert_eq!(grab_banner(&mut s, 22).as_deref(), Some("SSH-2.0-OpenSSH_9.6"));
+
+        let http_ln = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let http_port = http_ln.local_addr().unwrap().port();
+        thread::spawn(move || {
+            if let Ok((mut s, _)) = http_ln.accept() {
+                let mut req = [0u8; 256];
+                let _ = s.read(&mut req);
+                let _ = s.write_all(b"HTTP/1.0 200 OK\r\nServer: HomeAssistant\r\n\r\n<title>Home Assistant</title>");
+            }
+        });
+        let mut s = TcpStream::connect(("127.0.0.1", http_port)).unwrap();
+        assert_eq!(grab_banner(&mut s, 80).as_deref(), Some("Home Assistant (HomeAssistant)"));
     }
 }

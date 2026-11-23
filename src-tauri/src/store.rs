@@ -20,6 +20,8 @@ pub struct Device {
     /// How we learned about it: arp, mdns, ssdp, dhcp, capture, self, gateway.
     pub sources: BTreeSet<String>,
     pub open_ports: Option<Vec<u16>>,
+    /// Short read-only service banners grabbed from open ports (e.g. SSH version, HTTP title).
+    pub port_banners: BTreeMap<u16, String>,
     pub ports_checked_at: Option<u64>,
     pub first_seen: u64,
     pub last_seen: u64,
@@ -197,6 +199,7 @@ impl DeviceStore {
         fill!(hostname, vendor, label, model, friendly_name, rtt_ms, ttl, dhcp_vendor, dhcp_params, notes, network);
         if from.ports_checked_at > into.ports_checked_at {
             into.open_ports = from.open_ports.clone();
+            into.port_banners = from.port_banners.clone();
             into.ports_checked_at = from.ports_checked_at;
         }
         if from_newer && from.last_reply > into.last_reply {

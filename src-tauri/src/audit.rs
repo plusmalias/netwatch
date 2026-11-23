@@ -67,17 +67,22 @@ pub fn port_name(port: u16) -> &'static str {
         554 => "RTSP video",
         631 => "printing",
         1883 => "MQTT",
+        2323 => "Telnet (alt)",
         3389 => "Remote Desktop",
         5000 => "UPnP/HTTP",
+        5555 => "Android ADB",
         5900 => "VNC screen sharing",
+        6379 => "Redis",
         7000 => "AirPlay",
         8008 => "HTTP alt",
         8009 => "Cast",
         8080 => "HTTP proxy",
+        8123 => "Home Assistant",
         8443 => "HTTPS alt",
         8883 => "MQTT TLS",
         9100 => "printing",
         32400 => "Plex",
+        37777 => "IP camera / DVR",
         49152 => "UPnP",
         62078 => "iOS sync",
         _ => "",
@@ -87,7 +92,7 @@ pub fn port_name(port: u16) -> &'static str {
 /// Remote-access and file-transfer services that are often unencrypted or
 /// weakly protected.
 pub fn is_risky_port(port: u16) -> bool {
-    matches!(port, 21 | 23 | 3389 | 5900)
+    matches!(port, 21 | 23 | 2323 | 3389 | 5555 | 5900)
 }
 
 pub fn port_severity(port: u16) -> Severity {

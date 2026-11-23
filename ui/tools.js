@@ -111,6 +111,7 @@ function paletteItems() {
   act("Check DNS servers", "dns benchmark resolver", () => { setView("network"); $('[data-action="dns-check"]')?.click(); });
   act("Run DNS leak test", "vpn leak privacy", () => { setView("network"); runLeakTest(); });
   act("Create weekly report", "report pdf export summary", () => weeklyReport());
+  act("Export security incident report (JSON)", "incident export json mitre attack alerts", () => exportIncidentReport());
   act("Export devices as CSV", "export csv spreadsheet", () => exportDevices());
   act(state.bt?.scan_state === "scanning" ? "Stop Bluetooth listening" : "Start Bluetooth listening", "bluetooth scan ble", () => call("set_ble_scan", { on: state.bt?.scan_state !== "scanning" }));
   act("Acknowledge all alerts", "ack clear alerts", () => call("ack_alert", { id: null }));

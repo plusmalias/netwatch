@@ -51,7 +51,9 @@ const DEVICE_SAVE_INTERVAL_MS: u64 = 30_000;
 const RISKY_PORTS: &[(u16, &str)] = &[
     (21, "FTP"),
     (23, "Telnet"),
+    (2323, "Telnet (alt)"),
     (3389, "Remote Desktop"),
+    (5555, "Android ADB"),
     (5900, "VNC"),
 ];
 
@@ -128,6 +130,7 @@ pub struct Snapshot {
     pub bt: BtSnapshot,
     pub audit: AuditSnapshot,
     pub location: LocationInfo,
+    pub device_risks: std::collections::BTreeMap<String, crate::risk::DeviceRisk>,
 }
 
 #[derive(Serialize, Clone)]
@@ -304,10 +307,20 @@ impl Core {
         // literal below live until the end of the function.
         let monitor = self.monitor_snapshot();
         let location = self.location_info();
+        let net = self.net.read().unwrap().clone();
+        let devices = self.store.lock().unwrap().list();
+        let alerts = self.alerts.lock().unwrap().alerts.clone();
+        let forwards = monitor.router.mappings.as_deref().unwrap_or(&[]);
+        let device_risks = crate::risk::assess_all(
+            &devices,
+            &alerts,
+            forwards,
+            net.as_ref().and_then(|n| n.gateway_mac.as_deref()),
+        );
         Snapshot {
-            net: self.net.read().unwrap().clone(),
-            devices: self.store.lock().unwrap().list(),
-            alerts: self.alerts.lock().unwrap().alerts.clone(),
+            net,
+            devices,
+            alerts,
             capture: self.capture.lock().unwrap().0.clone(),
             feeds: self.feed_info(),
             traffic: self.traffic.lock().unwrap().clone(),
@@ -319,6 +332,7 @@ impl Core {
             bt: self.bt_snapshot(),
             audit: self.audit_snapshot(),
             location,
+            device_risks,
         }
     }
 
@@ -622,15 +636,16 @@ impl Core {
         }
         let core = self.clone();
         thread::spawn(move || {
-            let open = discovery::check_ports(ip);
+            let probe = discovery::check_ports_with_banners(ip);
             let risky: Vec<String> = RISKY_PORTS
                 .iter()
-                .filter(|(p, _)| open.contains(p))
+                .filter(|(p, _)| probe.open.contains(p))
                 .map(|(p, name)| format!("{name} ({p})"))
                 .collect();
             let mut described = None;
             let _ = core.update_device(&mac, |d| {
-                d.open_ports = Some(open);
+                d.open_ports = Some(probe.open);
+                d.port_banners = probe.banners;
                 d.ports_checked_at = Some(now_ms());
                 described = Some(describe(d));
             });
@@ -1202,10 +1217,44 @@ impl Core {
     }
 
     pub fn set_custom_blocklist(&self, text: &str) -> Result<(), String> {
-        std::fs::write(self.dir.join(blocklist::CUSTOM_FILE), text).map_err(|e| e.to_string())?;
+        let path = self.dir.join(blocklist::CUSTOM_FILE);
+        let tmp = path.with_extension("tmp");
+        std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
         *self.blocklist.write().unwrap() = Blocklist::load(&self.dir);
         self.emit("feeds", self.feed_info());
         Ok(())
+    }
+
+    pub fn add_custom_blocklist_entry(&self, entry: &str) -> Result<bool, String> {
+        let added = blocklist::append_custom_entry(&self.dir.join(blocklist::CUSTOM_FILE), entry)?;
+        if added {
+            *self.blocklist.write().unwrap() = Blocklist::load(&self.dir);
+            self.emit("feeds", self.feed_info());
+        }
+        Ok(added)
+    }
+
+    pub fn incident_report(&self) -> crate::risk::IncidentReport {
+        let net = self.net.read().unwrap().clone();
+        let devices = self.store.lock().unwrap().list();
+        let alerts = self.alerts.lock().unwrap().alerts.clone();
+        let forwards = self
+            .mon
+            .lock()
+            .unwrap()
+            .router
+            .mappings
+            .clone()
+            .unwrap_or_default();
+        crate::risk::build_incident_report(
+            now_ms(),
+            &devices,
+            &alerts,
+            &forwards,
+            net.as_ref().and_then(|n| n.gateway_mac.as_deref()),
+            describe,
+        )
     }
 }
 
@@ -1248,8 +1297,8 @@ fn identity_change(d: &Device, vendor: Option<&str>, params: Option<&str>) -> Op
     })
 }
 
-/// File types NetWatch writes to Downloads: device lists, reports, map images.
-const EXPORT_EXTS: &[&str] = &[".csv", ".html", ".svg", ".png"];
+/// File types NetWatch writes to Downloads: device lists, reports, incident JSON, map images.
+const EXPORT_EXTS: &[&str] = &[".csv", ".html", ".json", ".svg", ".png"];
 
 /// One-off repairs to records saved by earlier versions, run at startup.
 fn tidy_store(store: &mut DeviceStore) {
